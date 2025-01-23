@@ -1,0 +1,60 @@
+services:
+
+  vecno_explorer:
+    container_name: vecno_explorer
+    image: supertypo/vecno-explorer:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      API_URI: http://localhost:8000
+      API_WS_URI: ws://localhost:8001
+
+  vecno_rest_server:
+    container_name: vecno_rest_server
+    image: kaspanet/vecno-rest-server:latest
+    restart: unless-stopped
+    environment:
+      VECNOD_HOST_1: vecnod:16110
+      SQL_URI: postgresql+asyncpg://postgres:postgres@vecno_db:5432/postgres
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  simply_vecno_socket_server:
+    container_name: simply_vecno_socket_server
+    image: supertypo/simply-vecno-socket-server:unstable
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8001:8000"
+    command: -x 20 -s ws://vecnod:17110
+
+  simply_vecno_indexer:
+    container_name: simply_vecno_indexer
+    image: supertypo/simply-vecno-indexer:latest
+    restart: unless-stopped
+    command: -u -s ws://vecnod:17110 -d postgresql://postgres:postgres@vecno_db:5432/postgres
+
+  vecnod:
+    container_name: vecnod
+    image: supertypo/rusty-vecnod:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:16110:16110"
+      - "127.0.0.1:17110:17110"
+    volumes:
+      - /var/vecnod:/app/data/
+    command: vecnod --yes --nologfiles --disable-upnp --utxoindex --rpclisten=0.0.0.0:16110 --rpclisten-borsh=0.0.0.0:17110
+
+  vecno_db:
+    container_name: vecno_db
+    image: postgres:16-alpine
+    restart: unless-stopped
+    shm_size: 4G
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - /var/vecno_db/:/var/lib/postgresql/data/

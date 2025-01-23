@@ -1,0 +1,20 @@
+[package]
+name = "simply-vecno-database"
+rust-version.workspace = true
+authors.workspace = true
+license-file.workspace = true
+edition.workspace = true
+
+[features]
+default = []
+
+[lib]
+name = "simply_vecno_database"
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+vecno-hashes.workspace = true
+sqlx.workspace = true
+itertools.workspace = true
+regex.workspace = true
+log.workspace = true

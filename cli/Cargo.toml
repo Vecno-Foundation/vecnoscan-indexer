@@ -1,0 +1,16 @@
+[package]
+name = "simply-vecno-cli"
+rust-version.workspace = true
+authors.workspace = true
+license-file.workspace = true
+edition.workspace = true
+
+[features]
+default = []
+
+[lib]
+name = "simply_vecno_cli"
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+clap.workspace = true

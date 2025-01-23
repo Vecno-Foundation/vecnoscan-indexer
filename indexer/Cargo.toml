@@ -1,0 +1,30 @@
+[package]
+name = "simply-vecno-indexer"
+description = "Simply Vecno Indexer"
+rust-version.workspace = true
+authors.workspace = true
+license-file.workspace = true
+edition.workspace = true
+
+[features]
+default = []
+
+[dependencies]
+simply-vecno-cli.workspace = true
+simply-vecno-vecnod.workspace = true
+simply-vecno-database.workspace = true
+simply-vecno-mapping.workspace = true
+vecno-wrpc-client.workspace = true
+vecno-rpc-core.workspace = true
+vecno-hashes.workspace = true
+tokio.workspace = true
+deadpool.workspace = true
+futures-util.workspace = true
+crossbeam-queue.workspace = true
+moka.workspace = true
+chrono.workspace = true
+bigdecimal.workspace = true
+hex.workspace = true
+env_logger.workspace = true
+log.workspace = true
+clap.workspace = true

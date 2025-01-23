@@ -1,0 +1,22 @@
+[package]
+name = "simply-vecno-vecnod"
+rust-version.workspace = true
+authors.workspace = true
+license-file.workspace = true
+edition.workspace = true
+
+[features]
+default = []
+
+[lib]
+name = "simply_vecno_vecnod"
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+vecno-wrpc-client.workspace = true
+vecno-rpc-core.workspace = true
+tokio.workspace = true
+deadpool.workspace = true
+futures.workspace = true
+workflow-core.workspace = true
+log.workspace = true

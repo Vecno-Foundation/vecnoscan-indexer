@@ -1,0 +1,21 @@
+[package]
+name = "simply-vecno-mapping"
+rust-version.workspace = true
+authors.workspace = true
+license-file.workspace = true
+edition.workspace = true
+
+[features]
+default = []
+
+[lib]
+name = "simply_vecno_mapping"
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+simply-vecno-cli.workspace = true
+simply-vecno-database.workspace = true
+vecno-rpc-core.workspace = true
+bigdecimal.workspace = true
+log.workspace = true
+clap.workspace = true
