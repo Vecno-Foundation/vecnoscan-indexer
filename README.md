@@ -70,7 +70,7 @@ cargo build
 
 ### 6. Run indexer
 ```shell
-cargo run -- -s ws://<vecnod_host>:8110 -d postgres://postgres:postgres@<postgres_host>:5432
+cargo run -- -s ws://localhost:8110 -d postgres://postgres:newpassword@localhost:5432/vecno
 ```
 
 ## Help

@@ -117,8 +117,10 @@ CREATE TABLE balances
     transaction_id  BYTEA,
     address         VARCHAR,
     amount          BIGINT,
-    PRIMARY KEY (transaction_id, index)
+    PRIMARY KEY (transaction_id)
 );
+CREATE INDEX ON balances (address, amount);
+
 -- Create indexes (optional, if you need to search txs for address)
 --CREATE INDEX ON transactions_outputs (script_public_key_address);
 --CREATE INDEX ON transactions_outputs (block_time DESC);

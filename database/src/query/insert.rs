@@ -1,6 +1,7 @@
 use itertools::Itertools;
 use sqlx::{Error, Executor, Pool, Postgres, Row};
 
+use crate::models::balance::AddressBalance;
 use crate::models::address_transaction::AddressTransaction;
 use crate::models::block::Block;
 use crate::models::block_parent::BlockParent;
@@ -148,6 +149,35 @@ pub async fn insert_address_transactions_from_inputs(transaction_ids: &[Hash], p
     let sql = "
     INSERT INTO addresses_transactions (address, transaction_id, block_time)
         SELECT o.script_public_key_address, i.transaction_id, t.block_time
+            FROM transactions_inputs i
+            JOIN transactions t ON t.transaction_id = i.transaction_id
+            JOIN transactions_outputs o ON o.transaction_id = i.previous_outpoint_hash AND o.index = i.previous_outpoint_index
+        WHERE i.transaction_id = ANY($1) AND t.transaction_id = ANY($1)
+        ON CONFLICT DO NOTHING";
+
+    Ok(sqlx::query(sql).bind(transaction_ids).execute(pool).await?.rows_affected())
+}
+
+pub async fn insert_balances_transactions(balances: &[AddressBalance], pool: &Pool<Postgres>) -> Result<u64, Error> {
+    const COLS: usize = 3;
+    let sql = format!(
+        "INSERT INTO balances (transaction_id, address, amount)
+        VALUES {} ON CONFLICT DO NOTHING",
+        generate_placeholders(balances.len(), COLS)
+    );
+    let mut query = sqlx::query(&sql);
+    for balance in balances {
+        query = query.bind(&balance.transaction_id);
+        query = query.bind(&balance.address);
+        query = query.bind(balance.amount);
+    }
+    Ok(query.execute(pool).await?.rows_affected())
+}
+
+pub async fn insert_balances_transactions_from_inputs(transaction_ids: &[Hash], pool: &Pool<Postgres>) -> Result<u64, Error> {
+    let sql = "
+    INSERT INTO balances (transaction_id, address, amount)
+        SELECT i.transaction_id, o.script_public_key_address, t.amount
             FROM transactions_inputs i
             JOIN transactions t ON t.transaction_id = i.transaction_id
             JOIN transactions_outputs o ON o.transaction_id = i.previous_outpoint_hash AND o.index = i.previous_outpoint_index

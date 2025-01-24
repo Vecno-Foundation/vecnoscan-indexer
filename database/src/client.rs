@@ -6,6 +6,7 @@ use regex::Regex;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::{ConnectOptions, Error, Pool, Postgres};
 
+use crate::models::balance::AddressBalance;
 use crate::models::address_transaction::AddressTransaction;
 use crate::models::block::Block;
 use crate::models::block_parent::BlockParent;
@@ -179,6 +180,14 @@ impl VecnoDbClient {
 
     pub async fn insert_address_transactions_from_inputs(&self, transaction_ids: &[Hash]) -> Result<u64, Error> {
         query::insert::insert_address_transactions_from_inputs(transaction_ids, &self.pool).await
+    }
+
+    pub async fn insert_balances_transactions(&self, balances: &[AddressBalance]) -> Result<u64, Error> {
+        query::insert::insert_balances_transactions(balances, &self.pool).await
+    }
+
+    pub async fn insert_balances_transactions_from_inputs(&self, transaction_ids: &[Hash]) -> Result<u64, Error> {
+        query::insert::insert_balances_transactions_from_inputs(transaction_ids, &self.pool).await
     }
 
     pub async fn insert_block_transactions(&self, block_transactions: &[BlockTransaction]) -> Result<u64, Error> {

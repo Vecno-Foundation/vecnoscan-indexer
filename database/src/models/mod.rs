@@ -1,4 +1,5 @@
 pub mod address_transaction;
+pub mod balance;
 pub mod block;
 pub mod block_parent;
 pub mod block_transaction;

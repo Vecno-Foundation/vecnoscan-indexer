@@ -14,6 +14,7 @@ use tokio::time::sleep;
 
 use simply_vecno_database::client::VecnoDbClient;
 use simply_vecno_database::models::address_transaction::AddressTransaction;
+use simply_vecno_database::models::balance::AddressBalance;
 use simply_vecno_database::models::block_transaction::BlockTransaction;
 use simply_vecno_database::models::transaction::Transaction;
 use simply_vecno_database::models::transaction_input::TransactionInput;
@@ -44,6 +45,7 @@ pub async fn process_transactions(
     let mut tx_inputs = vec![];
     let mut tx_outputs = vec![];
     let mut tx_addresses = vec![];
+    let mut tx_balances = vec![];
     let mut last_block_time = 0;
     let mut last_commit_time = Instant::now();
 
@@ -79,6 +81,7 @@ pub async fn process_transactions(
                     tx_outputs.extend(mapper.map_transaction_outputs(&rpc_transaction));
                     if !settings.cli_args.skip_resolving_addresses {
                         tx_addresses.extend(mapper.map_transaction_outputs_address(&rpc_transaction));
+                        tx_balances.extend(mapper.map_outputs_address_balance(&rpc_transaction));
                     }
                     tx_id_cache.insert(transaction_id, ());
                 }
@@ -89,15 +92,19 @@ pub async fn process_transactions(
             {
                 let start_commit_time = Instant::now();
                 let transactions_len = transactions.len();
-                let transaction_ids = transactions.iter().map(|t| t.transaction_id.clone()).collect();
+                let transaction_ids: Vec<_> = transactions.iter().map(|t| t.transaction_id.clone()).collect();
 
                 let tx_handle = task::spawn(insert_txs(batch_scale, transactions, database.clone()));
                 let tx_inputs_handle = task::spawn(insert_tx_inputs(batch_scale, tx_inputs, database.clone()));
                 let tx_outputs_handle = task::spawn(insert_tx_outputs(batch_scale, tx_outputs, database.clone()));
                 let mut rows_affected_tx_addresses = 0;
+                let mut rows_affected_tx_balances = 0;
                 if !settings.cli_args.skip_resolving_addresses {
                     let tx_output_addr_handle = task::spawn(insert_output_tx_addr(batch_scale, tx_addresses, database.clone()));
-                    rows_affected_tx_addresses += tx_output_addr_handle.await.unwrap()
+                    rows_affected_tx_addresses += tx_output_addr_handle.await.unwrap();
+                    
+                    let tx_output_balance_handle = task::spawn(insert_output_tx_balance(batch_scale, tx_balances, database.clone()));
+                    rows_affected_tx_balances += tx_output_balance_handle.await.unwrap()
                 }
                 let rows_affected_tx = tx_handle.await.unwrap();
                 let rows_affected_tx_inputs = tx_inputs_handle.await.unwrap();
@@ -105,7 +112,8 @@ pub async fn process_transactions(
 
                 if !settings.cli_args.skip_resolving_addresses {
                     // ^Input address resolving can only happen after the transaction + inputs + outputs are committed
-                    rows_affected_tx_addresses += insert_input_tx_addr(batch_scale, transaction_ids, database.clone()).await;
+                    rows_affected_tx_addresses += insert_input_tx_addr(batch_scale, transaction_ids.clone(), database.clone()).await;
+                    rows_affected_tx_balances += insert_input_tx_balance(batch_scale, transaction_ids.clone(), &database).await;
                 }
 
                 // ^All other transaction details needs to be committed before linking to blocks, to avoid incomplete checkpoints
@@ -114,7 +122,7 @@ pub async fn process_transactions(
                 let commit_time = Instant::now().duration_since(start_commit_time).as_millis();
                 let tps = transactions_len as f64 / commit_time as f64 * 1000f64;
                 info!(
-                    "Committed {} new txs in {}ms ({:.1} tps, {} blk_tx, {} tx_in, {} tx_out, {} adr_tx). Last tx: {}",
+                    "Committed {} new txs in {}ms ({:.1} tps, {} blk_tx, {} tx_in, {} tx_out, {} adr_tx, {} bal_tx). Last tx: {}",
                     rows_affected_tx,
                     commit_time,
                     tps,
@@ -122,6 +130,7 @@ pub async fn process_transactions(
                     rows_affected_tx_inputs,
                     rows_affected_tx_outputs,
                     rows_affected_tx_addresses,
+                    rows_affected_tx_balances,
                     chrono::DateTime::from_timestamp_millis(last_block_time / 1000 * 1000).unwrap()
                 );
 
@@ -130,6 +139,7 @@ pub async fn process_transactions(
                 tx_inputs = vec![];
                 tx_outputs = vec![];
                 tx_addresses = vec![];
+                tx_balances = vec![];
                 last_commit_time = Instant::now();
             }
         } else {
@@ -199,6 +209,33 @@ async fn insert_output_tx_addr(batch_scale: f64, values: Vec<AddressTransaction>
     let mut rows_affected = 0;
     for batch_values in values.chunks(batch_size) {
         rows_affected += database.insert_address_transactions(batch_values).await.unwrap_or_else(|_| panic!("Insert {} FAILED", key));
+    }
+    debug!("Committed {} {} in {}ms", rows_affected, key, Instant::now().duration_since(start_time).as_millis());
+    rows_affected
+}
+
+async fn insert_input_tx_balance(batch_scale: f64, values: Vec<SqlHash>, database: &VecnoDbClient) -> u64 {
+    let batch_size = std::cmp::min((400f64 * batch_scale) as usize, 8000);
+    let key = "input balances";
+    let start_time = Instant::now();
+    debug!("Processing {} transactions for {}", values.len(), key);
+    let mut rows_affected = 0;
+    for batch_values in values.chunks(batch_size) {
+        rows_affected +=
+            database.insert_address_transactions_from_inputs(batch_values).await.unwrap_or_else(|_| panic!("Insert {} FAILED", key));
+    }
+    debug!("Committed {} {} in {}ms", rows_affected, key, Instant::now().duration_since(start_time).as_millis());
+    rows_affected
+}
+
+async fn insert_output_tx_balance(batch_scale: f64, values: Vec<AddressBalance>, database: VecnoDbClient) -> u64 {
+    let batch_size = min((500f64 * batch_scale) as u16, 20000) as usize; // 2^16 / fields
+    let key = "output balances";
+    let start_time = Instant::now();
+    debug!("Processing {} {}", values.len(), key);
+    let mut rows_affected = 0;
+    for batch_values in values.chunks(batch_size) {
+        rows_affected += database.insert_balances_transactions(batch_values).await.unwrap_or_else(|_| panic!("Insert {} FAILED", key));
     }
     debug!("Committed {} {} in {}ms", rows_affected, key, Instant::now().duration_since(start_time).as_millis());
     rows_affected

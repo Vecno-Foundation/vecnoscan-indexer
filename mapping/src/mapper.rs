@@ -1,6 +1,7 @@
 use vecno_rpc_core::{RpcBlock, RpcTransaction};
 use simply_vecno_cli::cli_args::CliField;
 use simply_vecno_database::models::address_transaction::AddressTransaction as SqlAddressTransaction;
+use simply_vecno_database::models::balance::AddressBalance as SqlAddressBalance;
 use simply_vecno_database::models::block::Block as SqlBlock;
 use simply_vecno_database::models::block_parent::BlockParent as SqlBlockParent;
 use simply_vecno_database::models::block_transaction::BlockTransaction as SqlBlockTransaction;
@@ -114,6 +115,10 @@ impl VecnoDbMapper {
 
     pub fn map_transaction_outputs_address(&self, transaction: &RpcTransaction) -> Vec<SqlAddressTransaction> {
         transactions::map_transaction_outputs_address(transaction)
+    }
+    
+    pub fn map_outputs_address_balance(&self, transaction: &RpcTransaction) -> Vec<SqlAddressBalance> {
+        transactions::map_outputs_address_balance(transaction)
     }
 }
 

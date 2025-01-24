@@ -2,6 +2,7 @@ use bigdecimal::ToPrimitive;
 use vecno_rpc_core::RpcTransaction;
 
 use simply_vecno_database::models::address_transaction::AddressTransaction as SqlAddressTransaction;
+use simply_vecno_database::models::balance::AddressBalance as SqlAddressBalance;
 use simply_vecno_database::models::block_transaction::BlockTransaction as SqlBlockTransaction;
 use simply_vecno_database::models::transaction::Transaction as SqlTransaction;
 use simply_vecno_database::models::transaction_input::TransactionInput as SqlTransactionInput;
@@ -93,4 +94,20 @@ pub fn map_transaction_outputs_address(transaction: &RpcTransaction) -> Vec<SqlA
             }
         })
         .collect::<Vec<SqlAddressTransaction>>()
+}
+
+pub fn map_outputs_address_balance(transaction: &RpcTransaction) -> Vec<SqlAddressBalance> {
+    let tx_verbose_data = transaction.verbose_data.as_ref().expect("Transaction verbose_data is missing");
+    transaction
+        .outputs
+        .iter()
+        .map(|output| {
+            let verbose_data = output.verbose_data.as_ref().expect("Transaction output verbose_data is missing");
+            SqlAddressBalance {
+                transaction_id: tx_verbose_data.transaction_id.into(),
+                address: verbose_data.script_public_key_address.payload_to_string(),
+                amount: output.value.to_i64().expect("Tx output amount is too large for i64"),
+            }
+        })
+        .collect::<Vec<SqlAddressBalance>>()
 }
