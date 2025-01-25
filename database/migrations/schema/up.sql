@@ -115,9 +115,8 @@ CREATE INDEX ON addresses_transactions (block_time DESC);
 CREATE TABLE balances
 (
     transaction_id  BYTEA,
-    address         VARCHAR,
-    amount          BIGINT,
-    PRIMARY KEY (transaction_id)
+    address         VARCHAR PRIMARY KEY,
+    amount          BIGINT
 );
 CREATE INDEX ON balances (address, amount);
 

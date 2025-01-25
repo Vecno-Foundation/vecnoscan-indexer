@@ -159,32 +159,53 @@ pub async fn insert_address_transactions_from_inputs(transaction_ids: &[Hash], p
 }
 
 pub async fn insert_balances_transactions(balances: &[AddressBalance], pool: &Pool<Postgres>) -> Result<u64, Error> {
+    use std::collections::HashMap;
+
+    let mut aggregated_balances = HashMap::new();
+    for balance in balances {
+        let entry = aggregated_balances.entry(balance.address.clone()).or_insert((0, balance.transaction_id.clone()));
+        entry.0 += balance.amount;  // Update amount
+        // No need to update entry.1 here since we're setting it on insert
+    }
+
     const COLS: usize = 3;
     let sql = format!(
         "INSERT INTO balances (transaction_id, address, amount)
-        VALUES {} ON CONFLICT DO NOTHING",
-        generate_placeholders(balances.len(), COLS)
+        VALUES {} ON CONFLICT (address) DO UPDATE SET 
+        amount = balances.amount + EXCLUDED.amount, 
+        transaction_id = EXCLUDED.transaction_id",
+        generate_placeholders(aggregated_balances.len(), COLS)
     );
+
     let mut query = sqlx::query(&sql);
-    for balance in balances {
-        query = query.bind(&balance.transaction_id);
-        query = query.bind(&balance.address);
-        query = query.bind(balance.amount);
+    for (address, (amount, transaction_id)) in aggregated_balances {
+        query = query.bind(transaction_id).bind(address).bind(amount);
     }
+
     Ok(query.execute(pool).await?.rows_affected())
 }
 
 pub async fn insert_balances_transactions_from_inputs(transaction_ids: &[Hash], pool: &Pool<Postgres>) -> Result<u64, Error> {
     let sql = "
-    INSERT INTO balances (transaction_id, address, amount)
-        SELECT i.transaction_id, o.script_public_key_address, t.amount
-            FROM transactions_inputs i
-            JOIN transactions t ON t.transaction_id = i.transaction_id
-            JOIN transactions_outputs o ON o.transaction_id = i.previous_outpoint_hash AND o.index = i.previous_outpoint_index
+    WITH updated_balances AS (
+        SELECT 
+            o.script_public_key_address AS address,
+            SUM(amount) AS amount_to_decrease
+        FROM transactions_inputs i
+        JOIN transactions t ON t.transaction_id = i.transaction_id
+        JOIN transactions_outputs o ON o.transaction_id = i.previous_outpoint_hash AND o.index = i.previous_outpoint_index
         WHERE i.transaction_id = ANY($1) AND t.transaction_id = ANY($1)
-        ON CONFLICT DO NOTHING";
+        GROUP BY o.script_public_key_address
+    )
+    UPDATE balances
+    SET amount = balances.amount - updated_balances.amount_to_decrease
+    FROM updated_balances
+    WHERE balances.address = updated_balances.address
+    AND balances.amount >= updated_balances.amount_to_decrease
+    RETURNING balances.address";
 
-    Ok(sqlx::query(sql).bind(transaction_ids).execute(pool).await?.rows_affected())
+    let rows = sqlx::query(sql).bind(transaction_ids).execute(pool).await?;
+    Ok(rows.rows_affected())
 }
 
 pub async fn insert_block_transactions(block_transactions: &[BlockTransaction], pool: &Pool<Postgres>) -> Result<u64, Error> {

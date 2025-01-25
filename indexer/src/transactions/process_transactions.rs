@@ -221,8 +221,17 @@ async fn insert_input_tx_balance(batch_scale: f64, values: Vec<SqlHash>, databas
     debug!("Processing {} transactions for {}", values.len(), key);
     let mut rows_affected = 0;
     for batch_values in values.chunks(batch_size) {
-        rows_affected +=
-            database.insert_address_transactions_from_inputs(batch_values).await.unwrap_or_else(|_| panic!("Insert {} FAILED", key));
+        match database.insert_balances_transactions_from_inputs(batch_values).await {
+            Ok(affected) => {
+                rows_affected += affected;
+            },
+            Err(e) => {
+                // Log the error with info level
+                info!("Failed to insert {} due to: {}", key, e.to_string());
+                // Here you might decide to continue processing other batches or break early
+                // For now, we'll continue processing
+            }
+        }
     }
     debug!("Committed {} {} in {}ms", rows_affected, key, Instant::now().duration_since(start_time).as_millis());
     rows_affected
@@ -235,9 +244,22 @@ async fn insert_output_tx_balance(batch_scale: f64, values: Vec<AddressBalance>,
     debug!("Processing {} {}", values.len(), key);
     let mut rows_affected = 0;
     for batch_values in values.chunks(batch_size) {
-        rows_affected += database.insert_balances_transactions(batch_values).await.unwrap_or_else(|_| panic!("Insert {} FAILED", key));
+        match database.insert_balances_transactions(batch_values).await {
+            Ok(affected) => {
+                rows_affected += affected;
+                if affected == 0 {
+                    debug!("No rows affected for batch - possible all conflicts or no change in data.");
+                }
+            },
+            Err(e) => {
+                info!("Failed to insert {} due to: {}", key, e.to_string());
+                // Decide what to do here - you might want to continue processing other batches 
+                // or break the loop if this is a critical error
+            }
+        }
     }
-    debug!("Committed {} {} in {}ms", rows_affected, key, Instant::now().duration_since(start_time).as_millis());
+    let commit_time = Instant::now().duration_since(start_time).as_millis();
+    debug!("Committed {} {} in {}ms", rows_affected, key, commit_time);
     rows_affected
 }
 
