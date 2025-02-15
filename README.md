@@ -70,7 +70,7 @@ cargo build
 
 ### 6. Run indexer
 ```shell
-cargo run -- -s ws://localhost:8110 -d postgres://postgres:newpassword@localhost:5432/vecno
+cargo run -- -s ws://localhost:8110 -d postgres://postgres:newpassword@localhost:5432/vecno --ignore-checkpoint df4120db0755f276b079d66a479ddb58b5fb03ae9ddc2715432beecfab7e8597
 ```
 
 ## Help
