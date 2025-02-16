@@ -93,7 +93,7 @@ CREATE TABLE transactions_outputs
     transaction_id            BYTEA,
     index                     SMALLINT,
     amount                    BIGINT,
-    script_public_key         BYTEA,
+    script_public_key         BYTEA UNIQUE,
     script_public_key_address VARCHAR,
     block_time                BIGINT,
     PRIMARY KEY (transaction_id, index)

@@ -210,17 +210,14 @@ pub async fn insert_block_transactions(block_transactions: &[BlockTransaction], 
     const COLS: usize = 2;
     let sql = format!(
         "INSERT INTO blocks_transactions (block_hash, transaction_id)
-        VALUES {} 
-        ON CONFLICT (block_hash, transaction_id) DO NOTHING",
+        VALUES {} ON CONFLICT DO NOTHING",
         generate_placeholders(block_transactions.len(), COLS)
     );
-    
     let mut query = sqlx::query(&sql);
     for block_transaction in block_transactions {
         query = query.bind(&block_transaction.block_hash);
         query = query.bind(&block_transaction.transaction_id);
     }
-    
     Ok(query.execute(pool).await?.rows_affected())
 }
 
