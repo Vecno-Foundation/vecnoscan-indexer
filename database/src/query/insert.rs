@@ -186,23 +186,15 @@ pub async fn insert_balances_transactions(balances: &[AddressBalance], pool: &Po
 
 pub async fn insert_balances_transactions_from_inputs(transaction_ids: &[Hash], pool: &Pool<Postgres>) -> Result<u64, Error> {
     let sql = "
-    WITH updated_balances AS (
-        SELECT 
-            o.script_public_key_address AS address,
-            SUM(o.amount) AS amount_to_decrease
-        FROM transactions_inputs i
-        JOIN transactions_outputs o ON o.transaction_id = i.previous_outpoint_hash AND o.index = i.previous_outpoint_index
-        WHERE i.transaction_id = ANY($1)
-        GROUP BY o.script_public_key_address
-    )
-    UPDATE balances
-    SET amount = balances.amount - COALESCE(updated_balances.amount_to_decrease, 0),
-        transaction_id = (SELECT transaction_id FROM transactions_inputs WHERE transaction_id = ANY($1) LIMIT 1)
-    FROM updated_balances
-    WHERE balances.address = updated_balances.address";
+    INSERT INTO balances (transaction_id, address, amount)
+        SELECT i.transaction_id, o.script_public_key_address, t.amount
+            FROM transactions_inputs i
+            JOIN transactions t ON t.transaction_id = i.transaction_id
+            JOIN transactions_outputs o ON o.transaction_id = i.previous_outpoint_hash AND o.index = i.previous_outpoint_index
+        WHERE i.transaction_id = ANY($1) AND t.transaction_id = ANY($1)
+        ON CONFLICT DO NOTHING";
 
-    let rows = sqlx::query(sql).bind(transaction_ids).execute(pool).await?;
-    Ok(rows.rows_affected())
+    Ok(sqlx::query(sql).bind(transaction_ids).execute(pool).await?.rows_affected())
 }
 
 pub async fn insert_block_transactions(block_transactions: &[BlockTransaction], pool: &Pool<Postgres>) -> Result<u64, Error> {
