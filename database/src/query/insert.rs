@@ -115,7 +115,7 @@ pub async fn insert_transaction_outputs(transaction_outputs: &[TransactionOutput
     let sql = format!(
         "INSERT INTO transactions_outputs (transaction_id, index, amount, script_public_key, script_public_key_address, block_time)
         VALUES {} 
-        ON CONFLICT (script_public_key, amount) DO NOTHING",  // Changed to handle conflict on script_public_key
+        ON CONFLICT (script_public_key) DO NOTHING",  // Changed to handle conflict on script_public_key
         generate_placeholders(transaction_outputs.len(), COLS)
     );
 
