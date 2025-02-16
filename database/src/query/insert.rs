@@ -158,27 +158,34 @@ pub async fn insert_address_transactions_from_inputs(transaction_ids: &[Hash], p
     Ok(sqlx::query(sql).bind(transaction_ids).execute(pool).await?.rows_affected())
 }
 
-pub async fn insert_balances_transactions(balances: &[AddressBalance], pool: &Pool<Postgres>) -> Result<u64, Error> {
-    use std::collections::HashMap;
+use std::collections::HashMap;
 
+pub async fn insert_balances_transactions(balances: &[AddressBalance], pool: &Pool<Postgres>) -> Result<u64, Error> {
     let mut aggregated_balances = HashMap::new();
+
+    // Aggregate balances
     for balance in balances {
-        let entry = aggregated_balances.entry(balance.address.clone()).or_insert((0, balance.transaction_id.clone()));
+        let entry = aggregated_balances.entry(balance.address.clone()).or_insert((0, Vec::new()));
         entry.0 += balance.amount;  // Update amount
+        if !entry.1.contains(&balance.transaction_id) {
+            entry.1.push(balance.transaction_id.clone());
+        }
     }
 
     const COLS: usize = 3;
     let sql = format!(
         "INSERT INTO balances (transaction_id, address, amount)
-        VALUES {} ON CONFLICT (address) DO UPDATE SET 
-        amount = balances.amount + EXCLUDED.amount, 
-        transaction_id = EXCLUDED.transaction_id",
-        generate_placeholders(aggregated_balances.len(), COLS)
+        VALUES {} ON CONFLICT (address, transaction_id) DO UPDATE SET 
+        amount = balances.amount + EXCLUDED.amount",
+        generate_placeholders(aggregated_balances.values().map(|(_, v)| v.len()).sum(), COLS)
     );
 
     let mut query = sqlx::query(&sql);
-    for (address, (amount, transaction_id)) in aggregated_balances {
-        query = query.bind(transaction_id).bind(address).bind(amount);
+    for (address, (amount, transaction_ids)) in aggregated_balances {
+        for transaction_id in transaction_ids {
+            // Clone address here to ensure it's valid for each iteration
+            query = query.bind(transaction_id).bind(address.clone()).bind(amount);
+        }
     }
 
     Ok(query.execute(pool).await?.rows_affected())
