@@ -114,11 +114,9 @@ pub async fn insert_transaction_outputs(transaction_outputs: &[TransactionOutput
     const COLS: usize = 6;
     let sql = format!(
         "INSERT INTO transactions_outputs (transaction_id, index, amount, script_public_key, script_public_key_address, block_time)
-        VALUES {} 
-        ON CONFLICT (script_public_key) DO NOTHING",  // Changed to handle conflict on script_public_key
+        VALUES {} ON CONFLICT DO NOTHING",
         generate_placeholders(transaction_outputs.len(), COLS)
     );
-
     let mut query = sqlx::query(&sql);
     for tout in transaction_outputs {
         query = query.bind(&tout.transaction_id);
@@ -167,7 +165,6 @@ pub async fn insert_balances_transactions(balances: &[AddressBalance], pool: &Po
     for balance in balances {
         let entry = aggregated_balances.entry(balance.address.clone()).or_insert((0, balance.transaction_id.clone()));
         entry.0 += balance.amount;  // Update amount
-        // No need to update entry.1 here since we're setting it on insert
     }
 
     const COLS: usize = 3;
