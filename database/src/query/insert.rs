@@ -175,7 +175,7 @@ pub async fn insert_balances_transactions(balances: &[AddressBalance], pool: &Po
     const COLS: usize = 3;
     let sql = format!(
         "INSERT INTO balances (transaction_id, address, amount)
-        VALUES {} ON CONFLICT (address, transaction_id) DO UPDATE SET 
+        VALUES {} ON CONFLICT (address) DO UPDATE SET 
         amount = balances.amount + EXCLUDED.amount",
         generate_placeholders(aggregated_balances.values().map(|(_, v)| v.len()).sum(), COLS)
     );
