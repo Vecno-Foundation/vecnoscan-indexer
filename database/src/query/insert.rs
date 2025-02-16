@@ -198,7 +198,7 @@ pub async fn insert_balances_transactions_from_inputs(transaction_ids: &[Hash], 
     )
     UPDATE balances
     SET amount = balances.amount - COALESCE(updated_balances.amount_to_decrease, 0),
-        transaction_id = (SELECT MAX(i.transaction_id) FROM transactions_inputs i WHERE i.transaction_id = ANY($1))
+        transaction_id = (SELECT transaction_id FROM transactions_inputs WHERE transaction_id = ANY($1) LIMIT 1)
     FROM updated_balances
     WHERE balances.address = updated_balances.address";
 
