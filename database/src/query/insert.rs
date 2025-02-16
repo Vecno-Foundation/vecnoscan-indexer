@@ -187,18 +187,23 @@ pub async fn insert_balances_transactions(balances: &[AddressBalance], pool: &Po
 
 pub async fn insert_balances_transactions_from_inputs(transaction_ids: &[Hash], pool: &Pool<Postgres>) -> Result<u64, Error> {
     let sql = "
+    WITH updated_balances AS (
+        SELECT 
+            o.script_public_key_address AS address,
+            SUM(o.amount) AS amount_to_decrease
+        FROM transactions_inputs i
+        JOIN transactions_outputs o ON o.transaction_id = i.previous_outpoint_hash AND o.index = i.previous_outpoint_index
+        WHERE i.transaction_id = ANY($1)
+        GROUP BY o.script_public_key_address
+    )
     UPDATE balances
-    SET amount = balances.amount - t.amount,
-        transaction_id = i.transaction_id
-    FROM transactions t
-    JOIN transactions_inputs i ON t.transaction_id = i.transaction_id
-    WHERE t.transaction_id = ANY($1) AND i.transaction_id = ANY($1) AND balances.address = (
-        SELECT script_public_key_address 
-        FROM transactions_outputs 
-        WHERE transaction_id = i.previous_outpoint_hash AND index = i.previous_outpoint_index
-    )";
+    SET amount = balances.amount - COALESCE(updated_balances.amount_to_decrease, 0),
+        transaction_id = (SELECT MAX(i.transaction_id) FROM transactions_inputs i WHERE i.transaction_id = ANY($1))
+    FROM updated_balances
+    WHERE balances.address = updated_balances.address";
 
-    Ok(sqlx::query(sql).bind(transaction_ids).execute(pool).await?.rows_affected())
+    let rows = sqlx::query(sql).bind(transaction_ids).execute(pool).await?;
+    Ok(rows.rows_affected())
 }
 
 pub async fn insert_block_transactions(block_transactions: &[BlockTransaction], pool: &Pool<Postgres>) -> Result<u64, Error> {
