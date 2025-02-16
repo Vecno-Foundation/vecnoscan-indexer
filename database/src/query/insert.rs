@@ -187,13 +187,16 @@ pub async fn insert_balances_transactions(balances: &[AddressBalance], pool: &Po
 
 pub async fn insert_balances_transactions_from_inputs(transaction_ids: &[Hash], pool: &Pool<Postgres>) -> Result<u64, Error> {
     let sql = "
-    INSERT INTO balances (transaction_id, address, amount)
-        SELECT i.transaction_id, o.script_public_key_address, t.amount
-            FROM transactions_inputs i
-            JOIN transactions t ON t.transaction_id = i.transaction_id
-            JOIN transactions_outputs o ON o.transaction_id = i.previous_outpoint_hash AND o.index = i.previous_outpoint_index
-        WHERE i.transaction_id = ANY($1) AND t.transaction_id = ANY($1)
-        ON CONFLICT DO NOTHING";
+    UPDATE balances
+    SET amount = balances.amount - t.amount,
+        transaction_id = i.transaction_id
+    FROM transactions t
+    JOIN transactions_inputs i ON t.transaction_id = i.transaction_id
+    WHERE t.transaction_id = ANY($1) AND i.transaction_id = ANY($1) AND balances.address = (
+        SELECT script_public_key_address 
+        FROM transactions_outputs 
+        WHERE transaction_id = i.previous_outpoint_hash AND index = i.previous_outpoint_index
+    )";
 
     Ok(sqlx::query(sql).bind(transaction_ids).execute(pool).await?.rows_affected())
 }
