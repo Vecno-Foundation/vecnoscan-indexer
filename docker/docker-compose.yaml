@@ -1,0 +1,150 @@
+services:
+  vecnod:
+    container_name: vecnod
+    image: eritonica/vecnod:latest
+    restart: unless-stopped
+    ports:
+      - "7110:7110"
+      - "7111:7111"
+    volumes:
+      - /mnt/st3/vecnod:/.vecnod/
+    command: ./vecnod --utxoindex --saferpc
+    networks:
+      - htn_network
+
+  htn-explorer:
+    container_name: htn-explorer
+    image: eritonica/htn-explorer:latest
+    restart: unless-stopped
+    environment:
+      REACT_APP_API: http://htn-rest-server:8000
+      REACT_APP_SOCKET: wss://htn-socket-server:8001
+      REACT_APP_ADDRESSES: https://shitlist.hoosat.fi/balances.csv
+      REACT_APP_HOMEPAGE: https://network.hoosat.fi
+      REACT_APP_GITHUB: https://github.com/Hoosat-Oy/htn-explorer
+      REACT_APP_COINGECKO: https://www.coingecko.com/en/coins/hoosat-network
+    ports:
+      - "3000:3000"
+    depends_on:
+      - vecnod
+      - htn-db-filler
+      - htn-socket-server
+      - htn-rest-server
+    networks:
+      - htn_network
+
+  htn-rest-server:
+    container_name: htn-rest-server
+    image: eritonica/htn-rest-server:latest
+    restart: unless-stopped
+    environment:
+      VECNOD_HOSTS_1: host.docker.internal:7110
+      SQL_URI: postgresql+asyncpg://postgres:postgres@postgresql:5432/postgres
+      ASYNC_SQL_URI: postgresql+asyncpg://postgres:postgres@postgresql:5432/postgres
+    ports:
+      - "8000:8000"
+    depends_on:
+      - vecnod
+      - postgresql
+    networks:
+      - htn_network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  htn-socket-server:
+    container_name: htn-socket-server
+    image: eritonica/htn-socket-server:latest
+    restart: unless-stopped
+    environment:
+      VECNOD_HOSTS_1: host.docker.internal:7110
+      SQL_URI: postgresql+asyncpg://postgres:postgres@postgresql:5432/postgres
+    ports:
+      - "8001:8000"
+    depends_on:
+      - vecnod
+      - postgresql
+    networks:
+      - htn_network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  htn-db-filler:
+    container_name: htn-db-filler
+    image: eritonica/htn-db-filler:latest
+    restart: unless-stopped
+    environment:
+      DEBUG: "true"
+      VECNOD_HOSTS_1: host.docker.internal:7110
+      SQL_URI: postgresql://postgres:postgres@postgresql:5432/postgres
+      BATCH_PROCESSING: "true"
+    ports:
+      - "8002:8000"
+    depends_on:
+      - vecnod
+      - postgresql
+    networks:
+      - htn_network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  htn-translation-layer:
+    container_name: htn-translation-layer
+    image: eritonica/htn-translation-layer:latest
+    restart: unless-stopped
+    ports:
+      - "8005:8000"
+    environment:
+      PROTOCOL: HTTP
+      PORT: 8000
+      ORIGINS: localhost:8000
+      ATLAS_URI: mongodb://admin:password@mongodb:27017/htn-translation-layer?authSource=admin
+      HTTPS_CERT: /etc/letsencrypt/live/hoosat.fi/cert.pem
+      HTTPS_KEY: /etc/letsencrypt/live/hoosat.fi/privkey.pem
+      HTTPS_CA: /etc/letsencrypt/live/hoosat.fi/chain.pem
+      EMAIL_SERVER_TYPE: service
+      EMAIL_SERVICE: gmail
+      EMAIL_USERNAME: hoosat.notifications@gmail.com
+      EMAIL_PASSWORD: ajwy gvsq sdgc epdx
+    depends_on:
+      - mongodb
+    networks:
+      - htn_network
+
+  mongodb:
+    container_name: mongodb
+    image: mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+      MONGO_INITDB_DATABASE: htn-translation-layer
+    volumes:
+      - /mnt/st3/mongodb:/data/db
+    networks:
+      - htn_network
+
+  postgresql:
+    container_name: postgresql
+    image: postgres:14-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - /mnt/st3/postgresql:/var/lib/postgresql/data
+    networks:
+      - htn_network
+
+# volumes:
+#   postgresql:
+#   vecnod:
+#   mongodb:
+
+networks:
+  htn_network:
+    driver: bridge

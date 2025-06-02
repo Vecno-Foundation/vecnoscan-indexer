@@ -1,0 +1,78 @@
+services:
+  htn-rest-server:
+    container_name: htn-rest-server
+    image: eritonica/htn-rest-server:latest
+    restart: unless-stopped
+    environment:
+      VECNOD_HOSTS_1: host.docker.internal:7110
+      SQL_URI: postgresql+asyncpg://postgres:postgres@postgresql:5432/postgres
+      ASYNC_SQL_URI: postgresql+asyncpg://postgres:postgres@postgresql:5432/postgres
+    ports:
+      - "8000:8000"
+    networks:
+      - htn_network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  htn-socket-server:
+    container_name: htn-socket-server
+    image: eritonica/htn-socket-server:latest
+    restart: unless-stopped
+    environment:
+      VECNOD_HOSTS_1: host.docker.internal:7110
+      SQL_URI: postgresql+asyncpg://postgres:postgres@postgresql:5432/postgres
+    ports:
+      - "8001:8000"
+    networks:
+      - htn_network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  htn-db-filler:
+    container_name: htn-db-filler
+    image: eritonica/htn-db-filler:latest
+    restart: unless-stopped
+    environment:
+      DEBUG: "true"
+      VECNOD_HOSTS_1: host.docker.internal:7110
+      SQL_URI: postgresql://postgres:postgres@postgresql:5432/postgres
+      BATCH_PROCESSING: "true"
+    ports:
+      - "8002:8000"
+    networks:
+      - htn_network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  postgresql:
+    container_name: postgresql
+    image: postgres:14-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgresql:/var/lib/postgresql/data
+    networks:
+      - htn_network
+
+  vecnod:
+    container_name: vecnod
+    image: eritonica/vecnod:latest
+    restart: unless-stopped
+    ports:
+      - "7110:7110"
+      - "42421:42421"
+    volumes:
+      - vecnod:/app/data
+    command: vecnod --utxoindex --saferpc
+
+volumes:
+  postgresql:
+
+networks:
+  htn_network:
+    driver: bridge
