@@ -21,7 +21,7 @@ task_runner = None
 
 class BlocksProcessor(object):
     """
-    BlocksProcessor polls hoosat for blocks and adds the meta information and it's transactions into database.
+    BlocksProcessor polls Vecnod for blocks and adds the meta information and it's transactions into database.
     """
 
     def __init__(self, client, vcp_instance, balance, batch_processing = False, env_enable_balance = False):
@@ -67,7 +67,7 @@ class BlocksProcessor(object):
         unique_addresses = list(set(addresses))
         for address in unique_addresses:    
             await self.balance.update_balance_from_rpc(address)
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.02)
         
 
     async def handle_blocks_committed(self):
@@ -173,7 +173,7 @@ class BlocksProcessor(object):
         Add all queued transactions and their in- and outputs to the database in batches
         to avoid exceeding PostgreSQL limits.
         """
-        BATCH_SIZE = 5  # Define a suitable batch size
+        BATCH_SIZE = 10  # Define a suitable batch size
 
         # First, handle updates for existing transactions.
         tx_ids_to_add = list(self.txs.keys())

@@ -17,8 +17,7 @@ logging.basicConfig(format="%(asctime)s::%(levelname)s::%(name)s::%(message)s",
                     level=logging.DEBUG if os.getenv("DEBUG", False) else logging.INFO,
                     handlers=[
                         logging.StreamHandler()
-                    ]
-                    )
+                    ])
 
 # disable sqlalchemy notifications
 logging.getLogger('sqlalchemy').setLevel(logging.ERROR)
@@ -41,9 +40,18 @@ for i in range(100):
 if not vecnod_hosts:
     raise Exception('Please set at least VECNOD_HOSTS_1 environment variable.')
 
-
 # create Vecnod client
 client = VecnodMultiClient(vecnod_hosts)
+
+async def periodic_balance_update(bap):
+    """Run update_all_balances every 60 seconds."""
+    while True:
+        try:
+            _logger.info("Running periodic balance update.")
+            await bap.update_all_balances()
+        except Exception as e:
+            _logger.error(f"Error in periodic balance update: {e}")
+        await asyncio.sleep(60)  # Wait 60 seconds before the next update
 
 async def main():
     # initialize vecnods
@@ -65,8 +73,8 @@ async def main():
         start_hash = virtualParentHash
 
     # if there is argument start_hash start with that instead of last acceptedTx or latest block.
-    env_start_hash = os.getenv('START_HASH', None) # Default to None if not set
-    if env_start_hash != None:
+    env_start_hash = os.getenv('START_HASH', None)  # Default to None if not set
+    if env_start_hash is not None:
         start_hash = env_start_hash
 
     _logger.info(f"Start hash: {start_hash}")
@@ -74,11 +82,19 @@ async def main():
     batch_processing_str = os.getenv('BATCH_PROCESSING', 'False')  # Default to 'False' if not set
     batch_processing = batch_processing_str.lower() in ['true', '1', 't', 'y', 'yes']
 
-    env_enable_balance = os.getenv('BALANCE_ENABLED', False)
-    env_update_balance_on_boot = os.getenv('UPDATE_BALANCE_ON_BOOT', False)
+    env_enable_balance = os.getenv('BALANCE_ENABLED', 'False').lower() in ['true', '1', 't', 'y', 'yes']
+    env_update_balance_on_boot = os.getenv('UPDATE_BALANCE_ON_BOOT', 'False').lower() in ['true', '1', 't', 'y', 'yes']
+    
     bap = BalanceProcessor(client)
-    if env_update_balance_on_boot is not False: 
+    if env_update_balance_on_boot:
+        _logger.info("Updating all balances on startup.")
         await bap.update_all_balances()
+
+    # Start periodic balance update task
+    if env_enable_balance:
+        _logger.info("Starting periodic balance update task (every 60 seconds).")
+        asyncio.create_task(periodic_balance_update(bap))
+
     # create instances of blocksprocessor and virtualchainprocessor
     vcp = VirtualChainProcessor(client, start_hash)
     bp = BlocksProcessor(client, vcp, bap, batch_processing, env_enable_balance)
@@ -88,13 +104,11 @@ async def main():
         try:
             await bp.loop(start_hash)
         except Exception:
-            _logger.exception('Exception occured and script crashed..')
+            _logger.exception('Exception occurred and script crashed.')
             raise
-
 
 if __name__ == '__main__':
     tx_addr_mapping_updater = TxAddrMappingUpdater()
-
 
     # custom exception hook for thread
     def custom_hook(args):
@@ -109,12 +123,10 @@ if __name__ == '__main__':
             p.start()
             raise Exception("TxAddrMappingUpdater thread crashed.")
 
-
     # set the exception hook
     threading.excepthook = custom_hook
 
     # run TxAddrMappingUpdater
-    # will be rerun
     _logger.info('Starting updater thread now.')
     threading.Thread(target=tx_addr_mapping_updater.loop, daemon=True, name="TxAddrMappingUpdater").start()
     _logger.info('Starting main thread now.')

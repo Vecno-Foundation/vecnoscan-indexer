@@ -60,7 +60,7 @@ class BalanceProcessor(object):
 
                 for address in addresses:
                     await self.update_balance_from_rpc(address)
-                    await asyncio.sleep(0.1)  
+                    await asyncio.sleep(0.02)  
 
             except Exception as e:
                 _logger.error(f"Error updating balances: {e}")
