@@ -1,7 +1,8 @@
 
 import asyncio
 import logging
-
+from sqlalchemy.sql import text
+from sqlalchemy.exc import SQLAlchemyError
 from typing import List
 from dbsession import session_maker
 from models.Balance import Balance
@@ -39,12 +40,14 @@ class BalanceProcessor(object):
         with session_maker() as session:
             try:
                 query = session.execute(
-                    """
-                    SELECT DISTINCT script_public_key_address 
-                    FROM transactions_outputs 
-                    WHERE script_public_key_address IS NOT NULL 
-                    ORDER BY script_public_key_address
-                    """
+                    text(
+                        """
+                        SELECT DISTINCT script_public_key_address 
+                        FROM transactions_outputs 
+                        WHERE script_public_key_address IS NOT NULL 
+                        ORDER BY script_public_key_address
+                        """
+                    )
                 )
 
                 addresses = [row[0] for row in query.fetchall()]
