@@ -12,7 +12,7 @@ class VecnodMultiClient(object):
 
     def __get_vecnod(self):
         for k in self.vecnods:
-            if k.is_utxo_indexed and k.is_synced:
+            if k.is_utxo_indexed:
                 return k
 
     async def initialize_all(self):
@@ -24,14 +24,14 @@ class VecnodMultiClient(object):
     async def __request(self, command, params=None, timeout=60, retry=3):
         vecnod = self.__get_vecnod()
         if vecnod is not None: 
-            return await vecnod.request(command, params, timeout=timeout, retry=1)
+            return await vecnod.request(command, params, timeout=timeout, retry=retry)
 
     async def request(self, command, params=None, timeout=60, retry=3):
         try:
-            return await self.__request(command, params, timeout=timeout, retry=1)
+            return await self.__request(command, params, timeout=timeout, retry=retry)
         except VecnodCommunicationError:
             await self.initialize_all()
-            return await self.__request(command, params, timeout=timeout, retry=1)
+            return await self.__request(command, params, timeout=timeout, retry=retry)
 
     async def notify(self, command, params, callback):
         vecnod = self.__get_vecnod()
