@@ -1,24 +1,28 @@
-
 import asyncio
 import logging
 from sqlalchemy.sql import text
-from sqlalchemy.exc import SQLAlchemyError
-from typing import List
+from sqlalchemy.exc import DatabaseError
 from dbsession import session_maker
 from models.Balance import Balance
 
 _logger = logging.getLogger(__name__)
 
 class BalanceProcessor(object):
-
     def __init__(self, client):
         self.client = client
+        self.balance_cache = {}  # Cache persists across calls in a sync cycle
+
     async def _get_balance_from_rpc(self, address):
         """
         Fetch balance for the given address from the RPC node.
         """
+        if address in self.balance_cache:
+            _logger.debug(f"Using cached balance for address {address}")
+            return self.balance_cache[address]
+
         try:
-            response = await self.client.request("getBalanceByAddressRequest", params= {"address": address}, timeout=60)
+            response = await self.client.request("getBalanceByAddressRequest", params={"address": address}, timeout=60)
+            _logger.debug(f"RPC response for address {address}: {response}")
 
             get_balance_response = response.get("getBalanceByAddressResponse", {})
             balance = get_balance_response.get("balance", None)
@@ -26,17 +30,25 @@ class BalanceProcessor(object):
 
             if error:
                 _logger.error(f"Error fetching balance for address {address}: {error}")
+                return None
             
             if balance is not None:
-                return int(balance)
+                balance = int(balance)
+            else:
+                _logger.info(f"Empty balance response for address {address}: {response}. Assuming balance is 0.")
+                balance = 0
             
-            return None
+            self.balance_cache[address] = balance
+            return balance
         
         except Exception as e:
             _logger.error(f"Error fetching balance for address {address}: {e}")
             return None
 
     async def update_all_balances(self):
+        """
+        Fetch and update balances for all addresses in batches.
+        """
         with session_maker() as session:
             try:
                 query = session.execute(
@@ -58,89 +70,101 @@ class BalanceProcessor(object):
 
                 _logger.info(f"Found {len(addresses)} addresses to update balances.")
 
-                
-                await self.update_balance_from_rpc(addresses, 10)
-                await asyncio.sleep(0.1)  
+                batch_size = 10
+                for i in range(0, len(addresses), batch_size):
+                    batch = addresses[i:i + batch_size]
+                    _logger.debug(f"Processing batch of {len(batch)} addresses.")
+                    _logger.debug(f"Addresses in batch: {[addr for addr in addresses]}")
+                    await self._process_batch(batch)
+                    # Removed delay; re-add await asyncio.sleep(0.05) if needed
 
+            except DatabaseError as e:
+                _logger.error(f"Database error fetching addresses: {e}")
+                session.rollback()
             except Exception as e:
-                _logger.error(f"Error updating balances: {e}")
-                return
+                _logger.error(f"Unexpected error updating balances: {e}")
+                session.rollback()
 
-
-    async def update_balance_from_rpc(self, addresses: List[str], batch_size: int = 10) -> None:
+    async def _process_batch(self, addresses):
         """
-        Update or delete balance records for the given addresses based on RPC data, processing in batches.
-
-        Args:
-            addresses: List of addresses to update balances for.
-            batch_size: Number of addresses to process per batch (default: 10).
-
-        Raises:
-            Exception: If an unexpected critical error occurs outside batch processing.
+        Process a batch of addresses by fetching balances and updating the database.
         """
-        failed_addresses = []
+        _logger.debug(f"Addresses in batch: {[addr for addr in addresses]}")
+        balance_tasks = await asyncio.gather(
+            *[self._get_balance_from_rpc(address) for address in addresses],
+            return_exceptions=True
+        )
 
-        # Process addresses in batches
-        for i in range(0, len(addresses), batch_size):
-            batch_addresses = addresses[i:i + batch_size]
-            _logger.info(f"Processing batch {i // batch_size + 1} with {len(batch_addresses)} addresses")
+        with session_maker() as session:
+            try:
+                for address, address_balance in zip(addresses, balance_tasks):
+                    if isinstance(address_balance, Exception):
+                        _logger.error(f"Failed to fetch balance for address {address}: {address_balance}")
+                        continue
 
-            with session_maker() as session:
-                try:
-                    # Query existing balances for the batch
-                    existing_balances = {
-                        b.script_public_key_address: b
-                        for b in session.query(Balance).filter(
-                            Balance.script_public_key_address.in_(batch_addresses)
-                        ).all()
-                    }
+                    _logger.debug(f"Updating address {address} balance to {address_balance}")
 
-                    for address in batch_addresses:
-                        try:
-                            # Get new balance from RPC
-                            new_balance = await self._get_balance_from_rpc(address)
-                            _logger.debug(f"Fetched balance {new_balance} for address {address}")
-                            # Check if balance record exists
-                            existing_balance = existing_balances.get(address)
+                    balance = session.query(Balance).filter(Balance.script_public_key_address == address).first()
+                    _logger.debug(f"Balance record for address {address}: {'exists' if balance else 'does not exist'}")
 
-                            if new_balance != None and new_balance != 0:
+                    if address_balance is None or address_balance == 0:
+                        if balance:
+                            session.delete(balance)
+                            _logger.info(f"Deleted balance record for address {address} as balance is 0 or None.")
+                        else:
+                            _logger.debug(f"No balance record to delete for address {address}.")
+                    else:
+                        if balance:
+                            balance.balance = address_balance
+                            _logger.debug(f"Updated existing balance record for address {address} to {address_balance}.")
+                        else:
+                            if address_balance > 0:
+                                balance = Balance(script_public_key_address=address, balance=address_balance)
+                                session.add(balance)
+                                _logger.debug(f"Added new balance record for address {address} with balance {address_balance}.")
 
-                                # Update or create record
-                                if existing_balance:
-                                    existing_balance.balance = new_balance
-                                    _logger.debug(f"Updated balance for address {address} to {new_balance}")
-                                else:
-                                    new_record = Balance(
-                                        script_public_key_address=address,
-                                        balance=new_balance
-                                    )
-                                    session.add(new_record)
-                                    _logger.debug(f"Created new balance record for address {address} with balance {new_balance}")
-                            else:
-                                if existing_balance: 
-                                    session.delete(existing_balance)
-                                    _logger.debug(f"Deleted balance record for address {address} (balance is 0)")
-                        except Exception as e:
-                            session.delete(address)
-                            _logger.error(f"Error processing address {address} in batch {i // batch_size + 1}: {e}")
-                            continue
+                session.commit()
+                _logger.debug(f"Committed changes for batch of {len(addresses)} addresses.")
+            except DatabaseError as e:
+                _logger.error(f"Database error processing batch for addresses {addresses}: {e}")
+                session.rollback()
+            except Exception as e:
+                _logger.error(f"Unexpected error processing batch for addresses {addresses}: {e}")
+                session.rollback()
 
-                    # Commit changes for this batch
-                    session.commit()
-                    _logger.info(f"Committed batch {i // batch_size + 1} with {len(batch_addresses)} addresses")
+    async def update_balance_from_rpc(self, address):
+        """
+        Update balance for a single address from RPC (for compatibility).
+        """
+        with session_maker() as session:
+            try:
+                balance = session.query(Balance).filter(Balance.script_public_key_address == address).first()
+                _logger.debug(f"Balance record for address {address}: {'exists' if balance else 'does not exist'}")
+                
+                address_balance = await self._get_balance_from_rpc(address)
+                _logger.debug(f"Updating address {address} balance to {address_balance}")
 
-                except SQLAlchemyError as db_err:
-                    _logger.error(f"Database error in batch {i // batch_size + 1}: {db_err}")
-                    session.rollback()
-                    failed_addresses.extend(batch_addresses)
-                    continue
-                except Exception as e:
-                    _logger.error(f"Unexpected error in batch {i // batch_size + 1}: {e}")
-                    session.rollback()
-                    failed_addresses.extend(batch_addresses)
-                    continue
+                if address_balance is None or address_balance == 0:
+                    if balance:
+                        session.delete(balance)
+                        _logger.info(f"Deleted balance record for address {address} as balance is 0 or None.")
+                    else:
+                        _logger.debug(f"No balance record to delete for address {address}.")
+                else:
+                    if balance:
+                        balance.balance = address_balance
+                        _logger.debug(f"Updated existing balance record for address {address} to {address_balance}.")
+                    else:
+                        if address_balance > 0:
+                            balance = Balance(script_public_key_address=address, balance=address_balance)
+                            session.add(balance)
+                            _logger.debug(f"Added new balance record for address {address} with balance {address_balance}.")
 
-        if failed_addresses:
-            _logger.warning(f"Failed to process {len(failed_addresses)} addresses: {failed_addresses[:10]}{'...' if len(failed_addresses) > 10 else ''}")
-        else:
-            _logger.info(f"Successfully processed all {len(addresses)} addresses")
+                session.commit()
+                _logger.debug(f"Committed changes for address {address}.")
+            except DatabaseError as e:
+                _logger.error(f"Database error updating balance for address {address}: {e}")
+                session.rollback()
+            except Exception as e:
+                _logger.error(f"Unexpected error updating balance for address {address}: {e}")
+                session.rollback()
