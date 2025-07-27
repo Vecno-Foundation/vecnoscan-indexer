@@ -44,14 +44,14 @@ if not vecnod_hosts:
 client = VecnodMultiClient(vecnod_hosts)
 
 async def periodic_balance_update(bap):
-    """Run update_all_balances every 60 seconds."""
+    # Fallback to update missed balances. Updates all balances once every two minutes.
     while True:
         try:
             _logger.info("Running periodic balance update.")
             await bap.update_all_balances()
         except Exception as e:
             _logger.error(f"Error in periodic balance update: {e}")
-        await asyncio.sleep(60)  # Wait 60 seconds before the next update
+        await asyncio.sleep(120) # Wait two minutes before the next update
 
 async def main():
     # initialize vecnods
@@ -92,7 +92,7 @@ async def main():
 
     # Start periodic balance update task
     if env_enable_balance:
-        _logger.info("Starting periodic balance update task (every 60 seconds).")
+        _logger.info("Starting periodic balance update task.")
         asyncio.create_task(periodic_balance_update(bap))
 
     # create instances of blocksprocessor and virtualchainprocessor
