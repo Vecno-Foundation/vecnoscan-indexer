@@ -1,0 +1,54 @@
+[package]
+name = "vecno-indexer"
+description = "Vecno Indexer"
+rust-version.workspace = true
+authors.workspace = true
+license-file.workspace = true
+edition.workspace = true
+
+[features]
+default = []
+
+[dependencies]
+vecno-indexer-cli.workspace = true
+vecno-indexer-signal.workspace = true
+vecno-indexer-vecnod.workspace = true
+vecno-indexer-database.workspace = true
+vecno-indexer-mapping.workspace = true
+vecno-wrpc-client.workspace = true
+vecno-rpc-core.workspace = true
+vecno-p2p-lib.workspace = true
+vecno-consensus-core.workspace = true
+vecno-hashes.workspace = true
+vecno-addresses.workspace = true
+vecno-txscript.workspace = true
+tokio.workspace = true
+tokio-cron-scheduler.workspace = true
+tonic.workspace = true
+deadpool.workspace = true
+futures-util.workspace = true
+crossbeam-queue.workspace = true
+moka.workspace = true
+chrono.workspace = true
+bigdecimal.workspace = true
+hex.workspace = true
+env_logger.workspace = true
+log.workspace = true
+clap.workspace = true
+axum.workspace = true
+sqlx.workspace = true
+tower-http.workspace = true
+utoipa.workspace = true
+utoipa-swagger-ui.workspace = true
+utoipa-axum.workspace = true
+serde.workspace = true
+serde_with.workspace = true
+serde_json.workspace = true
+sysinfo.workspace = true
+bytesize.workspace = true
+humantime.workspace = true
+humantime-serde.workspace = true
+url.workspace = true
+rand.workspace = true
+uuid = { version = "1.12.1", features = ["v4"] }
+indexmap.workspace = true

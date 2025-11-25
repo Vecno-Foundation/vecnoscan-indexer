@@ -1,0 +1,19 @@
+[package]
+name = "vecno-indexer-vecnod"
+rust-version.workspace = true
+authors.workspace = true
+license-file.workspace = true
+edition.workspace = true
+
+[features]
+default = []
+
+[lib]
+name = "vecno_indexer_vecnod"
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+vecno-wrpc-client.workspace = true
+vecno-rpc-core.workspace = true
+deadpool.workspace = true
+log.workspace = true

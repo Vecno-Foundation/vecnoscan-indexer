@@ -1,0 +1,73 @@
+[workspace]
+resolver = "2"
+members = [
+    "cli",
+    "database",
+    "mapping",
+    "vecnod",
+    "indexer",
+    "signal"
+]
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+lto = "thin"
+strip = true
+overflow-checks = true
+panic = "abort"
+
+[workspace.package]
+rust-version = "1.91.0"
+authors = [""]
+license = "MIT"
+license-file = "LICENSE"
+edition = "2024"
+
+[workspace.dependencies]
+vecno-indexer-cli = { path = "cli" }
+vecno-indexer-signal = { path = "signal" }
+vecno-indexer-database = { path = "database" }
+vecno-indexer-mapping = { path = "mapping" }
+vecno-indexer-vecnod = { path = "vecnod" }
+vecno-index-core = { git = "https://github.com/Vecno-Foundation/vecnod.git", branch = "master" }
+vecno-wrpc-client = { git = "https://github.com/Vecno-Foundation/vecnod.git", branch = "master" }
+vecno-rpc-core = { git = "https://github.com/Vecno-Foundation/vecnod.git", branch = "master" }
+vecno-p2p-lib = { git = "https://github.com/Vecno-Foundation/vecnod.git", branch = "master" }
+vecno-consensus-core = { git = "https://github.com/Vecno-Foundation/vecnod.git", branch = "master" }
+vecno-hashes = { git = "https://github.com/Vecno-Foundation/vecnod.git", branch = "master" }
+vecno-addresses = { git = "https://github.com/Vecno-Foundation/vecnod.git", branch = "master" }
+vecno-txscript = { git = "https://github.com/Vecno-Foundation/vecnod.git", branch = "master" }
+tokio = { version = "1.47.1", features = ["default", "signal"] }
+tokio-cron-scheduler = "0.15.0"
+tonic = { version = "0.14.2", features = ["gzip"] }
+futures-util = { version = "0.3.31", default-features = false }
+sqlx = { version = "0.8.6", features = ["runtime-tokio", "runtime-tokio-native-tls", "postgres"] }
+deadpool = { version = "0.12.3", features = ["managed", "rt_tokio_1"] }
+crossbeam-queue = "0.3.12"
+moka = { version = "0.12.11", features = ["sync"] }
+itertools = "0.14.0"
+chrono = { version = "0.4.42", features = ["std", "serde"] }
+bigdecimal = "0.4.8"
+hex = "0.4.3"
+regex = "1.11.3"
+indexmap = "2.11.4"
+env_logger = "0.11.8"
+log = "0.4.28"
+vergen-git2 = "1.0.7"
+clap = { version = "4.5.48", features = ["cargo", "derive"] }
+axum = { version = "0.8.5", features = ["http1", "ws", "json", "tokio"]}
+tower-http = { version = "0.6.6", features = ["cors"] }
+utoipa = { version = "5.4.0", features = ["axum_extras", "preserve_order", "chrono"] }
+utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
+utoipa-axum = "0.2.0"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_with = { version = "3.14.1", features = ["hex", "macros"] }
+serde_json = "1.0.145"
+sysinfo = "0.37.1"
+bytesize = "2.1.0"
+humantime = "2.3.0"
+humantime-serde = "1.1.1"
+url = "2.5.7"
+rand = "0.9.2"

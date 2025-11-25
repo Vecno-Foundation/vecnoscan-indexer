@@ -1,0 +1,19 @@
+[package]
+name = "vecno-indexer-mapping"
+rust-version.workspace = true
+authors.workspace = true
+license-file.workspace = true
+edition.workspace = true
+
+[features]
+default = []
+
+[lib]
+name = "vecno_indexer_mapping"
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+vecno-indexer-cli.workspace = true
+vecno-indexer-database.workspace = true
+vecno-rpc-core.workspace = true
+bigdecimal.workspace = true
