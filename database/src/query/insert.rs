@@ -3,6 +3,7 @@ use sqlx::{Error, Executor, Pool, Postgres, Row};
 
 use crate::models::address_transaction::AddressTransaction;
 use crate::models::block::Block;
+use crate::models::balance::Balance;
 use crate::models::block_parent::BlockParent;
 use crate::models::block_transaction::BlockTransaction;
 use crate::models::script_transaction::ScriptTransaction;
@@ -268,7 +269,7 @@ pub async fn insert_transaction_acceptances(tx_acceptances: &[TransactionAccepta
 
 /// Incremental balance updates – used during normal block processing
 pub async fn update_balances_incremental(
-    balance_deltas: &[(String, i64)],
+    balance_deltas: &[Balance],
     pool: &Pool<Postgres>,
 ) -> Result<u64, Error> {
     if balance_deltas.is_empty() {
@@ -279,19 +280,17 @@ pub async fn update_balances_incremental(
     let mut total = 0u64;
 
     for chunk in balance_deltas.chunks(CHUNK_SIZE) {
-        let addresses: Vec<String> = chunk.iter().map(|(a, _)| a.clone()).collect();
-        let deltas: Vec<i64> = chunk.iter().map(|(_, d)| *d).collect();
+        let addresses: Vec<String> = chunk.iter().map(|b| b.script_public_key_address.clone()).collect();
+        let deltas: Vec<i64> = chunk.iter().map(|b| b.balance).collect();
 
         let rows = sqlx::query(
             r#"
             INSERT INTO balances (script_public_key_address, balance)
-            VALUES (UNNEST($1::TEXT[]), 0)
-            ON CONFLICT (script_public_key_address) DO NOTHING;
-
-            UPDATE balances
-            SET balance = balance + UNNEST(deltas.d)
-            FROM (SELECT UNNEST($1::TEXT[]) AS addr, UNNEST($2::BIGINT[]) AS d) AS deltas
-            WHERE balances.script_public_key_address = deltas.addr;
+            SELECT addr, COALESCE(b.balance, 0) + delta
+            FROM UNNEST($1::TEXT[], $2::BIGINT[]) AS u(addr, delta)
+            LEFT JOIN balances b ON b.script_public_key_address = u.addr
+            ON CONFLICT (script_public_key_address) DO UPDATE
+            SET balance = EXCLUDED.balance
             "#
         )
         .bind(&addresses)
@@ -302,13 +301,12 @@ pub async fn update_balances_incremental(
 
         total += rows;
     }
-
     Ok(total)
 }
 
 /// Absolute balance overwrite – used ONLY during pruning point UTXO set import
 pub async fn update_balances_absolute(
-    absolute_balances: &[(String, i64)],
+    absolute_balances: &[Balance],
     pool: &Pool<Postgres>,
 ) -> Result<u64, Error> {
     if absolute_balances.is_empty() {
@@ -319,8 +317,8 @@ pub async fn update_balances_absolute(
     let mut total = 0u64;
 
     for chunk in absolute_balances.chunks(CHUNK_SIZE) {
-        let addresses: Vec<String> = chunk.iter().map(|(a, _)| a.clone()).collect();
-        let balances: Vec<i64> = chunk.iter().map(|(_, b)| *b).collect();
+        let addresses: Vec<String> = chunk.iter().map(|b| b.script_public_key_address.clone()).collect();
+        let balances: Vec<i64> = chunk.iter().map(|b| b.balance).collect();
 
         let rows = sqlx::query(
             r#"

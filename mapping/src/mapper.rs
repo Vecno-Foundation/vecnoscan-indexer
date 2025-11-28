@@ -145,10 +145,16 @@ impl VecnoDbMapper {
     }
 
     pub fn normalize_address(addr: &str) -> String {
-        if addr.starts_with("vecno:") {
-            addr.to_string()
+        let s = addr.trim();
+        if s.starts_with("vecno:") {
+            // Remove any double prefix
+            if s.len() > 10 && &s[6..11] == "vecno:" {
+                s[6..].to_string()
+            } else {
+                s.to_string()
+            }
         } else {
-            format!("vecno:{}", addr)
+            format!("vecno:{}", s)
         }
     }
 

@@ -22,6 +22,7 @@ use vecno_indexer_cli::cli_args::{CliArgs, CliField};
 use vecno_indexer_database::client::VecnoDbClient;
 use vecno_indexer_database::models::transaction_acceptance::TransactionAcceptance;
 use vecno_indexer_database::models::transaction_output::TransactionOutput;
+use vecno_indexer_database::models::balance::Balance;
 use vecno_indexer_signal::signal_handler::SignalHandler;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
@@ -227,8 +228,15 @@ impl UtxoSetImporter {
                         // FINAL STEP: Write ALL balances in one go
                         if self.include_script_public_key_address && !all_balance_deltas.is_empty() {
                             info!("Writing final absolute balances for {} addresses", all_balance_deltas.len());
-                            let final_balances: Vec<(String, i64)> = all_balance_deltas.clone().into_iter().collect();
+                            let final_balances: Vec<Balance> = all_balance_deltas
+                                .drain()
+                                .map(|(addr, bal)| Balance::new(addr, bal))
+                                .collect();
+
+                            if !final_balances.is_empty() {
+                            info!("Writing final absolute balances for {} addresses", final_balances.len());
                             let _ = self.database.update_balances_absolute(&final_balances).await;
+                            }
                         }
 
                         let mut metrics = self.metrics.write().await;

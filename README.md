@@ -1,6 +1,6 @@
 # imply Kaspa Indexer
 
-A high performance Kaspa PostgreSQL indexer implemented in Rust.
+A high performance Vecno PostgreSQL indexer implemented in Rust.
 
 ## About
 

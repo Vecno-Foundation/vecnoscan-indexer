@@ -6,6 +6,7 @@ use std::str::FromStr;
 use std::time::Duration;
 use crate::models::address_transaction::AddressTransaction;
 use crate::models::block::Block;
+use crate::models::balance::Balance;
 use crate::models::block_parent::BlockParent;
 use crate::models::block_transaction::BlockTransaction;
 use crate::models::query::database_details::DatabaseDetails;
@@ -160,11 +161,11 @@ impl VecnoDbClient {
         query::insert::insert_transaction_acceptances(transaction_acceptances, &self.pool).await
     }
 
-    pub async fn update_balances_incremental(&self, deltas: &[(String, i64)]) -> Result<u64, Error> {
+    pub async fn update_balances_incremental(&self, deltas: &[Balance]) -> Result<u64, Error> {
         query::insert::update_balances_incremental(deltas, &self.pool).await
     }
 
-    pub async fn update_balances_absolute(&self, balances: &[(String, i64)]) -> Result<u64, Error> {
+    pub async fn update_balances_absolute(&self, balances: &[Balance]) -> Result<u64, Error> {
         query::insert::update_balances_absolute(balances, &self.pool).await
     }
 
