@@ -229,7 +229,7 @@ pub async fn process_transactions(
                 let commit_time = Instant::now().duration_since(start_commit_time).as_millis();
                 let tps = transactions_len as f64 / commit_time as f64 * 1000f64;
                 info!(
-                    "Committed {} new txs in {}ms ({:.1} tps, {} blk_tx, {} tx_in, {} tx_out, {} adr_tx). Last tx: {}",
+                    "Added {} new txs to the database in {}ms ({:.1} tps, {} blk_tx, {} tx_in, {} tx_out, {} adr_tx). Last tx: {}",
                     rows_affected_tx,
                     commit_time,
                     tps,

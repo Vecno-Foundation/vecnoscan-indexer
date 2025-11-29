@@ -1,3 +1,5 @@
+// indexer/src/main.rs
+
 use clap::Parser;
 use crossbeam_queue::ArrayQueue;
 use deadpool::managed::{Object, Pool};
@@ -15,7 +17,7 @@ use vecno_indexer::prune::pruner;
 use vecno_indexer::settings::Settings;
 use vecno_indexer::transactions::process_transactions::process_transactions;
 use vecno_indexer::utxo_import::utxo_set_importer::UtxoSetImporter;
-use vecno_indexer::vars::load_block_checkpoint;
+use vecno_indexer::vars::{load_block_checkpoint, save_checkpoint};
 use vecno_indexer::virtual_chain::process_virtual_chain::process_virtual_chain;
 use vecno_indexer::web::model::metrics::Metrics;
 use vecno_indexer::web::web_server::WebServer;
@@ -38,6 +40,7 @@ async fn main() {
     println!("--------------------------------------------------------------");
     println!("--- https://github.com/Vecno-Foundation/vecnoscan-indexer/ ---");
     println!("--------------------------------------------------------------");
+
     let cli_args = CliArgs::parse();
     configure_logging(&cli_args);
 
@@ -55,7 +58,9 @@ async fn main() {
     let vecnod_pool: Pool<VecnodManager> = Pool::builder(vecnod_manager).max_size(10).build().unwrap();
 
     let pool_size = cli_args.batch_concurrency as u32 * 10;
-    let database = VecnoDbClient::new(&cli_args.database_url, pool_size).await.expect("Database connection FAILED");
+    let database = VecnoDbClient::new(&cli_args.database_url, pool_size)
+        .await
+        .expect("Database connection FAILED");
 
     if cli_args.initialize_db {
         info!("Initializing database");
@@ -66,19 +71,24 @@ async fn main() {
     start_processing(cli_args, vecnod_pool, database).await;
 }
 
-async fn start_processing(cli_args: CliArgs, vecnod_pool: Pool<VecnodManager, Object<VecnodManager>>, database: VecnoDbClient) {
+async fn start_processing(
+    cli_args: CliArgs,
+    vecnod_pool: Pool<VecnodManager, Object<VecnodManager>>,
+    database: VecnoDbClient,
+) {
     let signal_handler = SignalHandler::new().spawn();
 
     let block_dag_info = loop {
         if signal_handler.is_shutdown() {
             return;
         }
-        if let Ok(vecnod) = vecnod_pool.get().await
-            && let Ok(bdi) = vecnod.get_block_dag_info().await
-        {
-            break bdi;
+        match vecnod_pool.get().await {
+            Ok(vecnod) => match vecnod.get_block_dag_info().await {
+                Ok(bdi) => break bdi,
+                Err(_) => tokio::time::sleep(Duration::from_secs(5)).await,
+            },
+            Err(_) => tokio::time::sleep(Duration::from_secs(5)).await,
         }
-        tokio::time::sleep(Duration::from_secs(5)).await;
     };
 
     let net_bps = match block_dag_info.network {
@@ -89,41 +99,54 @@ async fn start_processing(cli_args: CliArgs, vecnod_pool: Pool<VecnodManager, Ob
     info!("Assuming {} block(s) per second for cache sizes", net_bps);
 
     if let Some(enable) = &cli_args.enable {
-        info!("Enable functionality is set, the following functionality will be enabled: {:?}", enable);
+        info!("Enable functionality: {:?}", enable);
     }
     if let Some(disable) = &cli_args.disable {
-        info!("Disable functionality is set, the following functionality will be disabled: {:?}", disable);
+        info!("Disable functionality: {:?}", disable);
     }
     if let Some(exclude_fields) = &cli_args.exclude_fields {
-        info!("Exclude fields is set, the following fields will be excluded: {:?}", exclude_fields);
+        info!("Exclude fields: {:?}", exclude_fields);
     }
 
     let mut utxo_set_import = cli_args.is_enabled(CliEnable::ForceUtxoImport);
-    let checkpoint: VecnoHash;
-    if let Some(ignore_checkpoint) = cli_args.ignore_checkpoint.clone() {
+    let mut previous_checkpoint: Option<String> = None;
+
+    let checkpoint: VecnoHash = if let Some(ignore_checkpoint) = cli_args.ignore_checkpoint.clone() {
         warn!("Checkpoint ignored due to user request (-i). This might lead to inconsistencies.");
-        if ignore_checkpoint == "p" {
-            checkpoint = block_dag_info.pruning_point_hash;
-            info!("Starting from pruning_point {}", checkpoint);
+        let hash = if ignore_checkpoint == "p" {
+            block_dag_info.pruning_point_hash
         } else if ignore_checkpoint == "v" {
-            checkpoint = *block_dag_info.virtual_parent_hashes.first().expect("Virtual parent not found");
-            info!("Starting from virtual_parent {}", checkpoint);
+            *block_dag_info.virtual_parent_hashes.first().expect("Virtual parent not found")
         } else {
-            checkpoint = VecnoHash::from_str(ignore_checkpoint.as_str()).expect("Supplied block hash is invalid");
-            info!("Starting from user supplied block {}", checkpoint);
-        }
-    } else if let Ok(saved_block_checkpoint) = load_block_checkpoint(&database).await {
-        checkpoint = VecnoHash::from_str(saved_block_checkpoint.as_str()).expect("Saved checkpoint is invalid!");
-        info!("Starting from checkpoint {}", checkpoint);
-    } else if cli_args.is_disabled(CliDisable::InitialUtxoImport) {
-        checkpoint = *block_dag_info.virtual_parent_hashes.first().expect("Virtual parent not found");
-        warn!("Checkpoint not found, starting from virtual_parent {}", checkpoint);
+            VecnoHash::from_str(&ignore_checkpoint).expect("Invalid block hash")
+        };
+        previous_checkpoint = Some(hex::encode(hash.as_bytes()));
+        info!("Starting from user-specified block {} → set as initial checkpoint", hash);
+        hash
+    } else if let Ok(saved) = load_block_checkpoint(&database).await {
+        let hash = VecnoHash::from_str(&saved).expect("Invalid saved checkpoint");
+        previous_checkpoint = Some(saved);
+        info!("Resuming from saved checkpoint {}", hash);
+        hash
     } else {
-        utxo_set_import = true;
-        checkpoint = block_dag_info.pruning_point_hash;
-        warn!("Checkpoint not found, starting from pruning_point {}", checkpoint);
+        utxo_set_import = !cli_args.is_disabled(CliDisable::InitialUtxoImport);
+        let pruning_hash = block_dag_info.pruning_point_hash;
+        previous_checkpoint = Some(hex::encode(pruning_hash.as_bytes()));
+        warn!(
+            "No checkpoint found → starting from pruning point {}",
+            pruning_hash
+        );
+        pruning_hash
+    };
+    
+    let initial_hex = previous_checkpoint.clone().expect("Must have initial checkpoint");
+    if save_checkpoint(&initial_hex, &database).await.is_ok() {
+        info!("Saved initial checkpoint: {} — balance tracking begins here", initial_hex);
+    } else {
+        warn!("FAILED to save initial checkpoint! Balances may be inconsistent on restart.");
     }
 
+    // Fetch block for metrics
     let checkpoint_block = match vecnod_pool.get().await.unwrap().get_block(checkpoint, false).await {
         Ok(block) => Some(CheckpointBlock {
             origin: CheckpointOrigin::Initial,
@@ -132,7 +155,10 @@ async fn start_processing(cli_args: CliArgs, vecnod_pool: Pool<VecnodManager, Ob
             daa_score: block.header.daa_score,
             blue_score: block.header.blue_score,
         }),
-        Err(_) => None,
+        Err(e) => {
+            warn!("Could not fetch initial checkpoint block for metrics: {e}");
+            None
+        }
     };
 
     let disable_vcp_wait_for_sync = cli_args.is_disabled(CliDisable::VcpWaitForSync) || utxo_set_import;
@@ -144,10 +170,20 @@ async fn start_processing(cli_args: CliArgs, vecnod_pool: Pool<VecnodManager, Ob
 
     let mapper = VecnoDbMapper::new(cli_args.clone());
 
-    let settings = Settings { cli_args: cli_args.clone(), net_bps, net_tps_max, checkpoint, disable_vcp_wait_for_sync };
+    let settings = Settings {
+        cli_args: cli_args.clone(),
+        net_bps,
+        net_tps_max,
+        checkpoint,
+        disable_vcp_wait_for_sync,
+    };
     let start_vcp = Arc::new(AtomicBool::new(false));
 
-    let mut metrics = Metrics::new(env!("CARGO_PKG_NAME").to_string(), cli_args.version(), cli_args.commit_id());
+    let mut metrics = Metrics::new(
+        env!("CARGO_PKG_NAME").to_string(),
+        cli_args.version(),
+        cli_args.commit_id(),
+    );
     let mut settings_clone = settings.clone();
     settings_clone.cli_args.rpc_url = settings_clone.cli_args.rpc_url.map(|_| "**hidden**".to_string());
     settings_clone.cli_args.p2p_url = settings_clone.cli_args.p2p_url.map(|_| "**hidden**".to_string());
@@ -162,11 +198,18 @@ async fn start_processing(cli_args: CliArgs, vecnod_pool: Pool<VecnodManager, Ob
     metrics.components.virtual_chain_processor.only_blocks = settings.cli_args.is_disabled(CliDisable::TransactionAcceptance);
     let metrics = Arc::new(RwLock::new(metrics));
 
-    let webserver =
-        Arc::new(WebServer::new(settings.clone(), signal_handler.clone(), metrics.clone(), vecnod_pool.clone(), database.clone()));
+    let webserver = Arc::new(WebServer::new(
+        settings.clone(),
+        signal_handler.clone(),
+        metrics.clone(),
+        vecnod_pool.clone(),
+        database.clone(),
+    ));
     let webserver_task = task::spawn(async move { webserver.run().await.unwrap() });
 
+    // UTXO import AFTER checkpoint is saved
     if utxo_set_import {
+        info!("Starting full UTXO set import from pruning point...");
         let importer = UtxoSetImporter::new(
             cli_args.clone(),
             signal_handler.clone(),
@@ -175,6 +218,7 @@ async fn start_processing(cli_args: CliArgs, vecnod_pool: Pool<VecnodManager, Ob
             database.clone(),
         );
         importer.start().await;
+        info!("UTXO set import completed — balances are now 100% accurate");
     }
 
     let mut block_fetcher = VecnoBlocksFetcher::new(
@@ -205,8 +249,11 @@ async fn start_processing(cli_args: CliArgs, vecnod_pool: Pool<VecnodManager, Ob
             metrics.clone(),
             checkpoint_queue.clone(),
             database.clone(),
+            mapper.clone(),
+            previous_checkpoint.clone(),
         )),
     ];
+
     if !settings.cli_args.is_disabled(CliDisable::TransactionProcessing) {
         tasks.push(task::spawn(process_transactions(
             settings.clone(),
@@ -245,6 +292,10 @@ fn configure_logging(cli_args: &CliArgs) {
         .format_target(false)
         .format_timestamp_millis()
         .parse_filters(&cli_args.log_level)
-        .write_style(if cli_args.log_no_color { env_logger::WriteStyle::Never } else { env_logger::WriteStyle::Always })
+        .write_style(if cli_args.log_no_color {
+            env_logger::WriteStyle::Never
+        } else {
+            env_logger::WriteStyle::Always
+        })
         .init();
 }

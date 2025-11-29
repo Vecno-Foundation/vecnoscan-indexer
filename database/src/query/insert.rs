@@ -1,6 +1,6 @@
 use itertools::Itertools;
 use sqlx::{Error, Executor, Pool, Postgres, Row};
-
+use log::info;
 use crate::models::address_transaction::AddressTransaction;
 use crate::models::block::Block;
 use crate::models::balance::Balance;
@@ -267,30 +267,52 @@ pub async fn insert_transaction_acceptances(tx_acceptances: &[TransactionAccepta
     Ok(query.execute(pool).await?.rows_affected())
 }
 
-/// Incremental balance updates – used during normal block processing
 pub async fn update_balances_incremental(
     balance_deltas: &[Balance],
     pool: &Pool<Postgres>,
-) -> Result<u64, Error> {
+) -> Result<u64, sqlx::Error> {
     if balance_deltas.is_empty() {
         return Ok(0);
     }
 
+    use std::collections::HashMap;
+
+    // Aggregate deltas per address
+    let mut aggregated: HashMap<String, i64> = HashMap::with_capacity(balance_deltas.len());
+    for delta in balance_deltas {
+        *aggregated.entry(delta.script_public_key_address.clone()).or_default() += delta.balance;
+    }
+    aggregated.retain(|_, v| *v != 0);
+
+    if aggregated.is_empty() {
+        info!("No non-zero balance changes after aggregation");
+        return Ok(0);
+    }
+
+    info!("Applying {} aggregated balance delta(s)", aggregated.len());
+
     const CHUNK_SIZE: usize = 25_000;
-    let mut total = 0u64;
+    let entries: Vec<(String, i64)> = aggregated.into_iter().collect();
+    let mut total_updated: u64 = 0;
 
-    for chunk in balance_deltas.chunks(CHUNK_SIZE) {
-        let addresses: Vec<String> = chunk.iter().map(|b| b.script_public_key_address.clone()).collect();
-        let deltas: Vec<i64> = chunk.iter().map(|b| b.balance).collect();
+    for chunk in entries.chunks(CHUNK_SIZE) {
+        let addresses: Vec<String> = chunk.iter().map(|(a, _)| a.clone()).collect();
+        let deltas: Vec<i64> = chunk.iter().map(|(_, d)| *d).collect();
 
-        let rows = sqlx::query(
+        let affected = sqlx::query(
             r#"
+            WITH input(addr, delta) AS (
+                SELECT * FROM UNNEST($1::TEXT[], $2::BIGINT[])
+            )
             INSERT INTO balances (script_public_key_address, balance)
-            SELECT addr, COALESCE(b.balance, 0) + delta
-            FROM UNNEST($1::TEXT[], $2::BIGINT[]) AS u(addr, delta)
-            LEFT JOIN balances b ON b.script_public_key_address = u.addr
+            SELECT 
+                i.addr,
+                COALESCE(b.balance, 0) + i.delta
+            FROM input i
+            LEFT JOIN balances b ON b.script_public_key_address = i.addr
             ON CONFLICT (script_public_key_address) DO UPDATE
             SET balance = EXCLUDED.balance
+            RETURNING script_public_key_address
             "#
         )
         .bind(&addresses)
@@ -299,12 +321,13 @@ pub async fn update_balances_incremental(
         .await?
         .rows_affected();
 
-        total += rows;
+        total_updated += affected;
     }
-    Ok(total)
+
+    info!("Live balances updated — {} addresses affected", total_updated);
+    Ok(total_updated)
 }
 
-/// Absolute balance overwrite – used ONLY during pruning point UTXO set import
 pub async fn update_balances_absolute(
     absolute_balances: &[Balance],
     pool: &Pool<Postgres>,
