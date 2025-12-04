@@ -89,7 +89,7 @@ pub enum CliField {
 }
 
 #[derive(Parser, Clone, Debug, ToSchema, Serialize, Deserialize)]
-#[command(name = "simply-vecno-indexer", version = env!("VERGEN_GIT_DESCRIBE"))]
+#[command(name = "vecnoscan-indexer", version = env!("VERGEN_GIT_DESCRIBE"))]
 #[serde(rename_all = "camelCase")]
 pub struct CliArgs {
     #[clap(short = 's', long, help = "RPC url to a vecnod instance, e.g 'ws://localhost:7110'. Leave empty to use the Vecno PNN")]

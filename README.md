@@ -1,19 +1,11 @@
-# imply Kaspa Indexer
+# Vecnoscan Indexer
 
 A high performance Vecno PostgreSQL indexer implemented in Rust.
 
 ## About
 
-The indexer has been implemented from scratch by deriving the functional spec of [vecno-db-filler](https://github.com/lAmeR1/vecno-db-filler).
+The indexer has been implemented from scratch by [supertypo](https://github.com/supertypo).
 As part of this process the database schema was reworked to better support concurrency.
-This means that databases populated by the lAmeR1/vecno-db-filler must be migrated to be compatible.
-A schema migration script has been developed and is available [here](https://github.com/supertypo/vecno-db-filler-migration).
-A compatible version of the vecno-rest-server is available [here](https://github.com/vecno-ng/vecno-rest-server).
-
-## Binary releases
-
-For now, binary releases are built for linux/amd64 and linux/arm64.
-Docker images are available from https://hub.docker.com/r/supertypo/simply-vecno-indexer
 
 ## Important notes
 
@@ -48,7 +40,7 @@ effective_cache_size = 8GB
 
 In addition, I highly recommend running Postgres on ZFS with compression=lz4 (or zstd) for space savings as well as for improving performance. Make sure to also set recordsize=16k.
 
-### 10bps note
+### Note
 
 The indexer is able to keep up with fully satured 10bps (2000+tps) as long as Postgres is running on a sufficiently high-end NVMe.
 By disabling optional tables and fields you can bring the requirements down if running on lesser hardware.
@@ -57,7 +49,6 @@ By disabling optional tables and fields you can bring the requirements down if r
 
 The indexer will begin collecting data from the point in time when it's started.
 If you have an archival node, you can specify the start-block using the --ignore_checkpoint argument and specify an older start block.
-Please make contact with us on the [Kaspa Discord](https://kaspa.org) if you need a pg_dump-file of historical records.
 
 ### Pruning
 
@@ -165,7 +156,7 @@ exclude-fields:
 Example command arguments:
 
 ```
--u -s ws://your-vecnod:17110 -d postgres://postgres:postgres@your-db:5432 -l 0.0.0.0:8500 \
+-u -s ws://your-vecnod:7110 -d postgres://postgres:postgres@your-db:5432 -l 0.0.0.0:8500 \
 --prune-db --retention=7d \
 --enable=transactions_inputs_resolve \
 --disable=block_parent_table,blocks_transactions_table,addresses_transactions_table \
@@ -248,17 +239,17 @@ Afterward truncate the addresses_transactions/scripts_transactions table, apply 
 ## Help
 
 ```
-Usage: simply-vecno-indexer [OPTIONS]
+Usage: Vecnoscan Indexer [OPTIONS]
 
 Options:
   -s, --rpc-url <RPC_URL>
-          RPC url to a vecnod instance, e.g 'ws://localhost:17110'. Leave empty to use the Kaspa PNN
+          RPC url to a vecnod instance, e.g 'ws://localhost:7110'.
 
   -p, --p2p-url <P2P_URL>
-          P2P socket address to a vecnod instance, e.g 'localhost:16111'.
+          P2P socket address to a vecnod instance.
 
   -n, --network <NETWORK>
-          The network type and suffix, e.g. 'testnet-11'
+          The network type and suffix, e.g. 'testnet'
   
           [default: mainnet]
 
