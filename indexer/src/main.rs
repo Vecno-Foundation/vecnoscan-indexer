@@ -109,7 +109,8 @@ async fn start_processing(
     }
 
     let mut utxo_set_import = cli_args.is_enabled(CliEnable::ForceUtxoImport);
-    let mut previous_checkpoint: Option<String> = None;
+
+    let previous_checkpoint: Option<String>;
 
     let checkpoint: VecnoHash = if let Some(ignore_checkpoint) = cli_args.ignore_checkpoint.clone() {
         warn!("Checkpoint ignored due to user request (-i). This might lead to inconsistencies.");
@@ -146,7 +147,6 @@ async fn start_processing(
         warn!("FAILED to save initial checkpoint! Balances may be inconsistent on restart.");
     }
 
-    // Fetch block for metrics
     let checkpoint_block = match vecnod_pool.get().await.unwrap().get_block(checkpoint, false).await {
         Ok(block) => Some(CheckpointBlock {
             origin: CheckpointOrigin::Initial,
@@ -207,7 +207,6 @@ async fn start_processing(
     ));
     let webserver_task = task::spawn(async move { webserver.run().await.unwrap() });
 
-    // UTXO import AFTER checkpoint is saved
     if utxo_set_import {
         info!("Starting full UTXO set import from pruning point...");
         let importer = UtxoSetImporter::new(

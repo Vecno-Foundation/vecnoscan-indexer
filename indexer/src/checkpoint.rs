@@ -85,7 +85,7 @@ pub async fn process_checkpoints(
                         && Instant::now().duration_since(checkpoint_last_saved).as_secs() > CHECKPOINT_SAVE_INTERVAL
                     {
                         checkpoint_candidate = Some(checkpoint_block.clone());
-                        cp_ok_blocks = false;
+                        cp_ok_blocks = true; 
                         cp_ok_txs = false;
                     }
                 }
@@ -117,7 +117,6 @@ pub async fn process_checkpoints(
                             }
                             Err(e) => {
                                 warn!("Failed to update live balances ({} → {}): {}", prev_hash, checkpoint_hash, e);
-                                // Optional: add fallback full recompute here in the future
                             }
                         }
                     }
