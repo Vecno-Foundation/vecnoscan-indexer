@@ -289,8 +289,6 @@ pub async fn update_balances_incremental(
         return Ok(0);
     }
 
-    info!("Applying {} aggregated balance delta(s)", aggregated.len());
-
     const CHUNK_SIZE: usize = 25_000;
     let entries: Vec<(String, i64)> = aggregated.into_iter().collect();
     let mut total_updated: u64 = 0;
@@ -324,7 +322,6 @@ pub async fn update_balances_incremental(
         total_updated += affected;
     }
 
-    info!("Live balances updated — {} addresses affected", total_updated);
     Ok(total_updated)
 }
 

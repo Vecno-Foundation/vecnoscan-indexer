@@ -1,5 +1,3 @@
-// indexer/src/checkpoint.rs
-
 use crate::vars::save_checkpoint;
 use crate::settings::Settings;
 use crate::web::model::metrics::Metrics;
@@ -46,8 +44,9 @@ pub async fn process_checkpoints(
     let disable_virtual_chain_processing = settings.cli_args.is_disabled(CliDisable::VirtualChainProcessing);
     let disable_transaction_processing = settings.cli_args.is_disabled(CliDisable::TransactionProcessing);
 
-    const CHECKPOINT_SAVE_INTERVAL: u64 = 60;
-    const CHECKPOINT_WARN_INTERVAL: u64 = 120;
+    const CHECKPOINT_SAVE_INTERVAL: u64 = 30;
+    const CHECKPOINT_WARN_INTERVAL: u64 = 30;
+    const MAX_TIME_WITHOUT_SAVE: u64 = 120;
 
     let mut checkpoint_last_saved = Instant::now();
     let mut checkpoint_last_warned = Instant::now();
@@ -91,63 +90,68 @@ pub async fn process_checkpoints(
                 }
                 CheckpointOrigin::Initial => {}
             }
-
-            if let Some(checkpoint) = checkpoint_candidate.take() {
-                let checkpoint_hash = hex::encode(checkpoint.hash.as_bytes());
-
-                if !cp_ok_blocks && blocks_processed.contains(&checkpoint.hash) {
-                    cp_ok_blocks = true;
-                }
-                blocks_processed.clear();
-
-                if !cp_ok_txs && (disable_transaction_processing || txs_processed.contains(&checkpoint.hash)) {
-                    cp_ok_txs = true;
-                }
-                txs_processed.clear();
-
-                if cp_ok_blocks && cp_ok_txs {
-                    info!("Saving checkpoint {}", checkpoint_hash);
-
-                    // === BALANCE UPDATE: NO MORE SILENT FAILURES ===
-                    if let Some(prev_hash) = &previous_checkpoint {
-                        info!("Updating live balances: {} → {}", prev_hash, checkpoint_hash);
-                        match update_balances_from_utxo_changes(&database, &mapper, prev_hash, &checkpoint_hash).await {
-                            Ok(()) => {
-                                info!("Live balances updated successfully for checkpoint {}", checkpoint_hash);
-                            }
-                            Err(e) => {
-                                warn!("Failed to update live balances ({} → {}): {}", prev_hash, checkpoint_hash, e);
-                            }
-                        }
-                    }
-
-                    // === SAVE CHECKPOINT ===
-                    if save_checkpoint(&checkpoint_hash, &database).await.is_ok() {
-                        previous_checkpoint = Some(checkpoint_hash.clone());
-                        info!("Checkpoint saved successfully: {}", checkpoint_hash);
-                    } else {
-                        warn!("Failed to save checkpoint to database: {}", checkpoint_hash);
-                    }
-
-                    // === UPDATE METRICS ===
-                    {
-                        let mut m = metrics.write().await;
-                        m.checkpoint.origin = Some(format!("{:?}", checkpoint.origin));
-                        m.checkpoint.block = Some(checkpoint.into());
-                    }
-
-                    checkpoint_last_saved = Instant::now();
-                    checkpoint_candidate = None;
-                } else if Instant::now().duration_since(checkpoint_last_warned).as_secs() > CHECKPOINT_WARN_INTERVAL {
-                    warn!("Still waiting to save checkpoint {} (blocks: {}, txs: {})", checkpoint_hash, cp_ok_blocks, cp_ok_txs);
-                    checkpoint_last_warned = Instant::now();
-                    checkpoint_candidate = Some(checkpoint);
-                } else {
-                    checkpoint_candidate = Some(checkpoint);
-                }
-            }
         } else {
             sleep(Duration::from_millis(100)).await;
+        }
+
+        if let Some(checkpoint) = checkpoint_candidate.take() {
+            let checkpoint_hash = hex::encode(checkpoint.hash.as_bytes());
+
+            if !cp_ok_blocks && blocks_processed.contains(&checkpoint.hash) {
+                cp_ok_blocks = true;
+            }
+            blocks_processed.clear();
+
+            if !cp_ok_txs && (disable_transaction_processing || txs_processed.contains(&checkpoint.hash)) {
+                cp_ok_txs = true;
+            }
+            txs_processed.clear();
+
+            let time_since_last_save = Instant::now().duration_since(checkpoint_last_saved).as_secs();
+            let force_save = time_since_last_save > MAX_TIME_WITHOUT_SAVE;
+
+            if (cp_ok_blocks && cp_ok_txs) || force_save {
+                if force_save {
+                    warn!("Forcing save of checkpoint {} after {} seconds without save (blocks: {}, txs: {})", checkpoint_hash, time_since_last_save, cp_ok_blocks, cp_ok_txs);
+                    cp_ok_blocks = true;
+                    cp_ok_txs = true;
+                } else {
+                    info!("Saving checkpoint {}", checkpoint_hash);
+                }
+
+                if let Some(prev_hash) = &previous_checkpoint {
+                    match update_balances_from_utxo_changes(&database, &mapper, prev_hash, &checkpoint_hash).await {
+                        Ok(()) => {
+                            info!("Live balances updated successfully for checkpoint {}", checkpoint_hash);
+                        }
+                        Err(e) => {
+                            warn!("Failed to update live balances ({} → {}): {}", prev_hash, checkpoint_hash, e);
+                        }
+                    }
+                }
+
+                if save_checkpoint(&checkpoint_hash, &database).await.is_ok() {
+                    previous_checkpoint = Some(checkpoint_hash.clone());
+                    info!("Checkpoint saved successfully: {}", checkpoint_hash);
+                } else {
+                    warn!("Failed to save checkpoint to database: {}", checkpoint_hash);
+                }
+
+                {
+                    let mut m = metrics.write().await;
+                    m.checkpoint.origin = Some(format!("{:?}", checkpoint.origin));
+                    m.checkpoint.block = Some(checkpoint.into());
+                }
+
+                checkpoint_last_saved = Instant::now();
+                checkpoint_candidate = None;
+            } else if Instant::now().duration_since(checkpoint_last_warned).as_secs() > CHECKPOINT_WARN_INTERVAL {
+                warn!("Still waiting to save checkpoint {} (blocks: {}, txs: {})", checkpoint_hash, cp_ok_blocks, cp_ok_txs);
+                checkpoint_last_warned = Instant::now();
+                checkpoint_candidate = Some(checkpoint);
+            } else {
+                checkpoint_candidate = Some(checkpoint);
+            }
         }
     }
 }

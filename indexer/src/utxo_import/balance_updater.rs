@@ -1,5 +1,3 @@
-// indexer/src/utxo_import/balance_updater.rs
-
 use vecno_indexer_database::client::VecnoDbClient;
 use vecno_indexer_database::models::balance::Balance;
 use vecno_indexer_mapping::mapper::VecnoDbMapper;
@@ -71,7 +69,6 @@ pub async fn update_balances_from_utxo_changes(
 
     let mut deltas = Vec::with_capacity(created.len() + spent.len());
 
-    // === Created UTXOs (incoming) ===
     for row in created {
         if let (Some(addr), Some(amount)) = (row.address, row.total_amount) {
             if amount != 0 {
@@ -82,7 +79,6 @@ pub async fn update_balances_from_utxo_changes(
         }
     }
 
-    // === Spent UTXOs (outgoing) ===
     for row in spent {
         if let (Some(addr), Some(amount)) = (row.address, row.total_amount) {
             if amount != 0 {
@@ -99,7 +95,6 @@ pub async fn update_balances_from_utxo_changes(
         return Ok(());
     }
 
-    // Show top 10 biggest changes
     let mut sorted: Vec<_> = deltas.iter().collect();
     sorted.sort_by_key(|b| std::cmp::Reverse(b.balance.abs()));
     let top = sorted.into_iter().take(10).collect::<Vec<_>>();
