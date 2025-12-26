@@ -286,8 +286,7 @@ impl UtxoSetImporter {
             let address = self.include_script_public_key_address
                 .then(|| extract_script_pub_key_address(&spk, self.prefix).ok())
                 .flatten()
-                .map(|addr| addr.to_string())
-                .map(|raw_addr| VecnoDbMapper::normalize_address(&raw_addr));
+                .map(|addr| addr.payload_to_string());
 
             // Accumulate balance using normalized address
             if let Some(ref addr) = address {

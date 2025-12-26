@@ -72,7 +72,6 @@ pub async fn update_balances_from_utxo_changes(
     for row in created {
         if let (Some(addr), Some(amount)) = (row.address, row.total_amount) {
             if amount != 0 {
-                let addr = VecnoDbMapper::normalize_address(&addr);
                 info!("+{amount} → {addr}");
                 deltas.push(Balance::new(addr, amount));
             }
@@ -82,7 +81,6 @@ pub async fn update_balances_from_utxo_changes(
     for row in spent {
         if let (Some(addr), Some(amount)) = (row.address, row.total_amount) {
             if amount != 0 {
-                let addr = VecnoDbMapper::normalize_address(&addr);
                 let change = -amount;
                 info!("{change} → {addr}");
                 deltas.push(Balance::new(addr, change));

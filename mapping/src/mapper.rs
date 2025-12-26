@@ -144,20 +144,6 @@ impl VecnoDbMapper {
         )
     }
 
-    pub fn normalize_address(addr: &str) -> String {
-        let s = addr.trim();
-        if s.starts_with("vecno:") {
-            // Remove any double prefix
-            if s.len() > 10 && &s[6..11] == "vecno:" {
-                s[6..].to_string()
-            } else {
-                s.to_string()
-            }
-        } else {
-            format!("vecno:{}", s)
-        }
-    }
-
     pub fn map_transaction_outputs_address(&self, transaction: &RpcTransaction) -> Vec<SqlAddressTransaction> {
         transactions::map_transaction_outputs_address(transaction)
     }
