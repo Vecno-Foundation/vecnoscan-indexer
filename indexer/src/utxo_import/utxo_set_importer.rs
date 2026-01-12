@@ -17,7 +17,6 @@ use vecno_wrpc_client::prelude::{NetworkId, NetworkType};
 use log::{info, warn};
 use rand::prelude::IndexedRandom;
 use rand::rng;
-use vecno_indexer_mapping::mapper::VecnoDbMapper;
 use vecno_indexer_cli::cli_args::{CliArgs, CliField};
 use vecno_indexer_database::client::VecnoDbClient;
 use vecno_indexer_database::models::transaction_acceptance::TransactionAcceptance;

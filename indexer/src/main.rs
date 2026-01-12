@@ -109,7 +109,104 @@ async fn start_processing(
     }
 
     let mut utxo_set_import = cli_args.is_enabled(CliEnable::ForceUtxoImport);
+    let current_pruning_hash = block_dag_info.pruning_point_hash;
+    let mut force_balance_rebuild = cli_args.force_balance_rebuild;
 
+    if !force_balance_rebuild {
+        if let Ok(last_cp_str) = load_block_checkpoint(&database).await {
+            if let Ok(last_cp_hash) = VecnoHash::from_str(&last_cp_str) {
+                // Try to get blue score of the last checkpoint
+                let last_blue = if let Ok(vecnod) = vecnod_pool.get().await {
+                    match vecnod.get_block(last_cp_hash, false).await {
+                        Ok(block) => block.header.blue_score,
+                        Err(e) => {
+                            warn!("Cannot fetch last checkpoint block: {}. Assuming old.", e);
+                            0
+                        }
+                    }
+                } else {
+                    warn!("Cannot get RPC connection to check checkpoint age.");
+                    0
+                };
+
+                let current_blue = if let Some(vparent_hash) = block_dag_info.virtual_parent_hashes.first() {
+                    if let Ok(vecnod) = vecnod_pool.get().await {
+                        match vecnod.get_block(*vparent_hash, false).await {
+                            Ok(block) => block.header.blue_score,
+                            Err(_) => {
+                                warn!("Cannot fetch virtual parent block blue score → fallback to 0");
+                                0
+                            }
+                        }
+                    } else {
+                        0
+                    }
+                } else {
+                    warn!("No virtual parent hashes available → fallback to 0");
+                    0
+                };
+
+                let age_in_blue = current_blue.saturating_sub(last_blue);
+                const REBUILD_THRESHOLD_BLUE: u64 = 200_000; // ~2–3 days @ ~1 BPS
+
+                if age_in_blue > REBUILD_THRESHOLD_BLUE {
+                    warn!(
+                        "Last checkpoint appears too old ({} blue score behind). Forcing full balance rebuild.",
+                        age_in_blue
+                    );
+                    force_balance_rebuild = true;
+                }
+            }
+        } else {
+            info!("No previous checkpoint found → forcing full balance rebuild");
+            force_balance_rebuild = true;
+        }
+    }
+
+    if force_balance_rebuild {
+        info!("TRUNCATING balances table and rebuilding from current pruning point");
+
+        if let Err(e) = sqlx::query("TRUNCATE TABLE balances RESTART IDENTITY CASCADE")
+            .execute(&database.pool)
+            .await
+        {
+            error!("Failed to truncate balances table: {}", e);
+            panic!("Cannot continue without clean balances state");
+        }
+
+        info!("Balances table cleared successfully");
+
+        let temp_metrics = Metrics::new(
+            "rebuild-metrics".to_string(),
+            cli_args.version(),
+            cli_args.commit_id(),
+        );
+
+        let importer = UtxoSetImporter::new(
+            cli_args.clone(),
+            signal_handler.clone(),
+            Arc::new(RwLock::new(temp_metrics)),
+            current_pruning_hash,
+            database.clone(),
+        );
+
+        importer.start().await;
+
+        info!("Full UTXO set → balances import completed");
+
+        let pruning_hex = hex::encode(current_pruning_hash.as_bytes());
+        if save_checkpoint(&pruning_hex, &database).await.is_err() {
+            warn!("Failed to save checkpoint after full rebuild");
+        } else {
+            info!("New safe checkpoint saved after rebuild: {}", pruning_hex);
+        }
+
+        utxo_set_import = false;
+    } else {
+        info!("Using incremental balance updates from last known checkpoint");
+    }
+
+    // ── Normal startup flow ────────────────────────────────────────────────────────
     let previous_checkpoint: Option<String>;
 
     let checkpoint: VecnoHash = if let Some(ignore_checkpoint) = cli_args.ignore_checkpoint.clone() {
@@ -139,7 +236,7 @@ async fn start_processing(
         );
         pruning_hash
     };
-    
+
     let initial_hex = previous_checkpoint.clone().expect("Must have initial checkpoint");
     if save_checkpoint(&initial_hex, &database).await.is_ok() {
         info!("Saved initial checkpoint: {} — balance tracking begins here", initial_hex);
